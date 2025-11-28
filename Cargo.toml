@@ -1,0 +1,34 @@
+[package]
+name = "aegis_vm"
+version = "0.1.0"
+edition = "2021"
+description = "Advanced Rust code virtualization and obfuscation framework"
+license = "MIT"
+repository = "https://github.com/onurkun/RustAegis"
+keywords = ["obfuscation", "virtualization", "security", "vm", "protection"]
+categories = ["cryptography", "development-tools"]
+readme = "README.md"
+
+[dependencies]
+fastrand = "2.0"
+aes-gcm = { version = "0.10", default-features = false, features = ["aes", "alloc"] }
+hmac = { version = "0.12", default-features = false }
+sha2 = { version = "0.10", default-features = false }
+digest = { version = "0.10", default-features = false }
+subtle = { version = "2.5", default-features = false }
+aegis_vm_macro = "0.1.0"
+
+[dev-dependencies]
+hex = "0.4"
+
+[features]
+default = ["std"]
+std = []
+vm_debug = []
+
+[profile.release]
+strip = true
+lto = true
+codegen-units = 1
+panic = "abort"
+opt-level = "z"

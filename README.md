@@ -1,0 +1,125 @@
+# 🛡️ RustAegis
+
+> **Next-Generation Virtualization & Obfuscation Framework for Rust**
+
+[![Crates.io](https://img.shields.io/crates/v/aegis_vm.svg)](https://crates.io/crates/aegis_vm)
+[![Documentation](https://docs.rs/aegis_vm/badge.svg)](https://docs.rs/aegis_vm)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+
+RustAegis is a research-grade software protection system that compiles Rust code into custom, polymorphic virtual machine bytecode. It is designed to protect sensitive logic against reverse engineering and tampering by moving execution from the native CPU to a secure, randomized software interpreter.
+
+## 🚀 Key Features
+
+*   **Virtualization:** Converts Rust AST directly into a custom stack-based VM instruction set.
+*   **Polymorphism:** The instruction set mapping (Opcode Table) is randomized for every build via a `.build_seed` artifact.
+*   **Mixed Boolean-Arithmetic (MBA):** Transforms simple arithmetic (`+`, `-`, `^`) into complex, mathematically equivalent boolean expressions.
+*   **Compile-Time Encryption:** Bytecode is encrypted with a unique key per build and decrypted only at runtime.
+*   **Anti-Tamper:** Integrated integrity checks ensure the bytecode has not been modified.
+*   **Junk Code Injection:** Inserts dead code and entropy-based instructions to break signature scanning.
+
+## 📦 Installation
+
+Add the following to your `Cargo.toml`:
+
+```toml
+[dependencies]
+aegis_vm = "0.1.0"
+```
+
+## 🛠️ Usage
+
+Apply the `#[vm_protect]` attribute to any sensitive function you wish to virtualize.
+
+```rust
+use aegis_vm::vm_protect;
+
+// Standard protection (Polymorphism + Encryption)
+#[vm_protect]
+fn check_password(input: u64) -> bool {
+    input == 0xCAFEBABE
+}
+
+// Paranoid protection (Heavy MBA + Obfuscation)
+// Use this for critical logic like key derivation.
+#[vm_protect(level = "paranoid")]
+fn derive_key(seed: u64) -> u64 {
+    // All arithmetic here is transformed into complex boolean logic
+    (seed ^ 0x1234) + 0xABCD
+}
+```
+
+## ⚙️ Architecture & The `.build_seed`
+
+RustAegis uses a split architecture:
+1.  **Compiler (`vm-macro`):** Runs at compile time, generating encrypted bytecode.
+2.  **Runtime (`vm`):** Runs inside your application, executing the bytecode.
+
+### Synchronization via `.anticheat_build_seed`
+To ensure the compiler uses the exact same encryption keys and opcode mapping that the runtime expects, the system generates a temporary artifact named `.anticheat_build_seed` in your project root during the build process.
+
+*   **Local Development:** This happens automatically. If you encounter a "Build ID mismatch" error, simply run `cargo clean` to regenerate the seed.
+*   **CI/CD:** The seed is unique to each build environment. Do **not** commit `.anticheat_build_seed` to version control if you want unique polymorphism for every deployment.
+*   **Reproducible Builds:** If you need exactly the same VM bytecode across different machines, you can set the `ANTICHEAT_BUILD_KEY` environment variable. This overrides the random generation.
+
+```bash
+# For reproducible builds (same opcodes, same keys)
+export ANTICHEAT_BUILD_KEY="my-secret-company-build-key"
+cargo build --release
+```
+
+## 🔍 Analysis & Reverse Engineering
+
+RustAegis significantly complicates static and dynamic analysis by flattening control flow and obfuscating data flow.
+
+### Control Flow Flattening
+
+The VM interpreter acts as a massive switch statement (dispatcher). The original control flow (if/else, loops) is flattened into data-driven jumps within the interpreter loop.
+
+**Native CFG:**
+Distinct blocks for `if`, `else`, and `return`, easily readable by decompilers.
+
+![Native Control Flow](docs/images/check_license_native_02_control_flow.png)
+*Figure 1: Native assembly of the license check function. Logic is linear and easy to follow.*
+
+**VM CFG:**
+A single "God Node" (the dispatcher) with edges pointing back to itself. The actual logic is hidden in the bytecode data, not the CPU instructions.
+
+![VM Control Flow Graph](docs/images/check_license_vm_02_control_flow.png)
+*Figure 2: The same function protected by the VM. The control flow is flattened into the VM's fetch-decode-execute loop.*
+
+### Arithmetic Obfuscation (MBA)
+
+Instead of a single `ADD` instruction, the analyst sees a randomized sequence of stack operations implementing mathematically equivalent formulas like:
+`x + y = (x ^ y) + 2 * (x & y)` or `(x | y) + (x & y)`
+
+![Arithmetic Obfuscation Graph](docs/images/01_arithmetic_flow_graph.png)
+*Figure 3: Even a simple arithmetic function explodes into a complex graph due to MBA transformations and the VM dispatcher overhead.*
+
+## ⚡ Performance & Constraints
+
+Virtualization comes with a cost. RustAegis is designed for **security**, not speed.
+
+*   **Performance:** Expect a 10x-100x slowdown compared to native code. This is standard for software-based virtualization.
+*   **Usage:** Apply `#[vm_protect]` **only** to sensitive functions (license checks, key generation, encryption logic). Do **not** virtualize tight loops in performance-critical rendering or physics code.
+*   **Supported Platforms:** Works on `x86_64`, `aarch64`, `wasm32`, and any platform supported by Rust `std` or `alloc` (no_std compatible).
+
+## 📂 Examples
+
+Check the `examples/` directory for complete test cases:
+
+*   `01_arithmetic.rs`: Demonstrates MBA transformations.
+*   `02_control_flow.rs`: Demonstrates if/else logic protection.
+*   `03_loops.rs`: Demonstrates loop virtualization.
+
+Run them with:
+```bash
+cargo run --example 01_arithmetic
+```
+
+## ⚠️ Disclaimer
+
+This project is for **educational and research purposes only**. It is designed to demonstrate concepts in software protection, obfuscation, and compiler theory.
+
+## 📄 License
+
+MIT
