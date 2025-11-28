@@ -313,8 +313,7 @@ fn write_build_history(
 
     // Find project root (where Cargo.toml is)
     let history_path = if let Ok(manifest_dir) = env::var("CARGO_MANIFEST_DIR") {
-        Path::new(&manifest_dir).parent().and_then(|p| p.parent())
-            .map(|p| p.join("build_history.txt"))
+        Some(Path::new(&manifest_dir).join("build_history.txt"))
     } else {
         Some(Path::new("build_history.txt").to_path_buf())
     };
