@@ -1,3 +1,4 @@
 /target
 Cargo.lock
 .anticheat_build_seed
+build_history.txt
