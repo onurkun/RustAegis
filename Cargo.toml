@@ -1,6 +1,6 @@
 [package]
 name = "aegis_vm"
-version = "0.1.3"
+version = "0.1.31"
 edition = "2021"
 description = "Advanced Rust code virtualization and obfuscation framework"
 license = "MIT"

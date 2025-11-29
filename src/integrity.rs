@@ -19,6 +19,9 @@
 //! 3. Mismatch → Tampering detected!
 //! ```
 
+#[cfg(not(feature = "std"))]
+use alloc::vec::Vec;
+
 use crate::build_config::{FNV_BASIS_64, FNV_PRIME_64};
 
 /// Default region size (64 bytes)
@@ -170,8 +173,8 @@ pub enum IntegrityError {
     },
 }
 
-impl std::fmt::Display for IntegrityError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl core::fmt::Display for IntegrityError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             IntegrityError::HashMismatch { expected, actual } => {
                 write!(f, "Bytecode integrity check failed: hash mismatch (expected 0x{:016x}, got 0x{:016x})", expected, actual)
@@ -186,6 +189,7 @@ impl std::fmt::Display for IntegrityError {
     }
 }
 
+#[cfg(feature = "std")]
 impl std::error::Error for IntegrityError {}
 
 /// FNV-1a hash using build-specific constants
