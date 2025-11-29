@@ -1,0 +1,16 @@
+[package]
+name = "aegis_wasm_test"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+aegis_vm = { path = "../..", default-features = false }
+wasm-bindgen = "0.2"
+web-sys = { version = "0.3", features = ["console"] }
+wasm-bindgen-test = "0.3"
+
+[package.metadata.wasm-pack.profile.release]
+wasm-opt = false

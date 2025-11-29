@@ -1,5 +1,8 @@
 //! VM State management
 
+#[cfg(not(feature = "std"))]
+use alloc::vec::Vec;
+
 use crate::error::{VmError, VmResult};
 use crate::opcodes::flags;
 
@@ -83,9 +86,9 @@ impl<'a> VmState<'a> {
     /// Initialize timing for anti-debug checks
     #[inline]
     pub fn init_timing(&mut self) {
-        #[cfg(not(feature = "vm_debug"))]
+        #[cfg(all(feature = "std", not(feature = "vm_debug")))]
         {
-            // Use system time in release mode
+            // Use system time in release mode with std
             use std::time::{SystemTime, UNIX_EPOCH};
             self.start_time_ns = SystemTime::now()
                 .duration_since(UNIX_EPOCH)
@@ -93,9 +96,9 @@ impl<'a> VmState<'a> {
                 .unwrap_or(0);
             self.last_timing_ns = self.start_time_ns;
         }
-        #[cfg(feature = "vm_debug")]
+        #[cfg(any(not(feature = "std"), feature = "vm_debug"))]
         {
-            // Skip timing init in debug mode
+            // Skip timing in no_std or debug mode
             self.start_time_ns = 0;
             self.last_timing_ns = 0;
         }
@@ -104,7 +107,7 @@ impl<'a> VmState<'a> {
     /// Get current time in nanoseconds
     #[inline]
     pub fn current_time_ns(&self) -> u64 {
-        #[cfg(not(feature = "vm_debug"))]
+        #[cfg(all(feature = "std", not(feature = "vm_debug")))]
         {
             use std::time::{SystemTime, UNIX_EPOCH};
             SystemTime::now()
@@ -112,7 +115,7 @@ impl<'a> VmState<'a> {
                 .map(|d| d.as_nanos() as u64)
                 .unwrap_or(0)
         }
-        #[cfg(feature = "vm_debug")]
+        #[cfg(any(not(feature = "std"), feature = "vm_debug"))]
         {
             0
         }

@@ -5,7 +5,7 @@ use aegis_vm::vm_protect;
 fn check_license_native(key: u64) -> bool {
     // Simulated license check logic
     if key > 10000 {
-        if key % 2 == 0 {
+        if key.is_multiple_of(2) {
             if (key & 0xFF) == 0xAA {
                 return true;
             }

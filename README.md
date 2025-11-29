@@ -23,7 +23,7 @@ Add the following to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-aegis_vm = "0.1.0"
+aegis_vm = "0.1.2"
 ```
 
 ## 🛠️ Usage
@@ -110,11 +110,108 @@ Check the `examples/` directory for complete test cases:
 *   `01_arithmetic.rs`: Demonstrates MBA transformations.
 *   `02_control_flow.rs`: Demonstrates if/else logic protection.
 *   `03_loops.rs`: Demonstrates loop virtualization.
+*   `04_wasm.rs`: Demonstrates WASM integration.
+*   `wasm_test/`: Complete WASM test project with `wasm-pack`.
 
 Run them with:
 ```bash
 cargo run --example 01_arithmetic
+cargo run --example 04_wasm
+
+# For WASM tests
+cd examples/wasm_test
+wasm-pack test --node
 ```
+
+## 🌐 WASM Support
+
+RustAegis fully supports WebAssembly. To use with WASM:
+
+### Setup
+```bash
+# Add WASM target
+rustup target add wasm32-unknown-unknown
+
+# Install wasm-pack (optional, for building/testing)
+cargo install wasm-pack
+```
+
+### Cargo.toml Configuration
+```toml
+[dependencies]
+aegis_vm = { version = "0.1.2", default-features = false }
+wasm-bindgen = "0.2"
+```
+
+### Usage Pattern
+Since `#[vm_protect]` and `#[wasm_bindgen]` cannot be combined directly, use a wrapper:
+
+```rust
+use aegis_vm::vm_protect;
+use wasm_bindgen::prelude::*;
+
+// VM-protected implementation
+#[vm_protect(level = "debug")]
+fn secret_impl(x: u64) -> u64 {
+    x ^ 0xDEADBEEF
+}
+
+// WASM export wrapper
+#[wasm_bindgen]
+pub fn secret(x: u64) -> u64 {
+    secret_impl(x)
+}
+```
+
+### Building WASM
+```bash
+cd examples/wasm_test
+
+# Build for web
+wasm-pack build --target web --release
+
+# Run tests with Node.js
+wasm-pack test --node
+
+# Run tests in headless browser
+wasm-pack test --headless --firefox
+```
+
+The compiled `.wasm` file will be in `pkg/` directory.
+
+## 📋 Changelog
+
+### v0.1.2
+
+**New Features:**
+*   **WASM/WebAssembly Support:** Full `no_std` compatibility for `wasm32-unknown-unknown` target
+*   **WASM Example:** Added `examples/04_wasm.rs` and `examples/wasm_test/` project with `wasm-pack` integration
+*   **Industry-Standard Obfuscation:** Added new substitution patterns to `substitution.rs`:
+    *   `AddSubstitution` - Multiple arithmetic identity transformations for ADD
+    *   `SubSubstitution` - Multiple arithmetic identity transformations for SUB
+    *   `MulSubstitution` - Multiplication obfuscation patterns
+    *   `XorSubstitution` - XOR identity transformations
+    *   `DeadCodeInsertion` - Deterministic dead code injection
+    *   `OpaquePredicate` - Always-true/always-false conditions
+    *   `ComparisonSubstitution` - Comparison obfuscation
+    *   `ControlFlowSubstitution` - Control flow helpers
+
+**Bug Fixes:**
+*   Fixed `std::hint::black_box` → `core::hint::black_box` in `build.rs` for `no_std` compatibility
+*   Fixed `SystemTime` usage with proper `#[cfg(feature = "std")]` guards in `state.rs` and `native.rs`
+*   Refactored `compiler.rs` to use centralized `Substitution` module instead of inline implementations
+
+**Improvements:**
+*   Deterministic dead code insertion using position-based entropy (no RNG dependency)
+*   Better separation of concerns between compiler and substitution modules
+
+### v0.1.1
+
+*   Initial public release
+*   Core VM engine with 60+ opcodes
+*   MBA (Mixed Boolean-Arithmetic) transformations
+*   Compile-time encryption with AES-256-GCM
+*   Polymorphic opcode shuffling
 
 ## ⚠️ Disclaimer
 

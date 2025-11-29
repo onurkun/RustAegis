@@ -2,3 +2,10 @@
 Cargo.lock
 .anticheat_build_seed
 build_history.txt
+
+# WASM build artifacts
+**/pkg/
+**/target/
+
+# macOS
+.DS_Store

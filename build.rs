@@ -109,8 +109,8 @@ fn main() {
     writeln!(f, "pub fn get_build_seed() -> [u8; 32] {{").unwrap();
     writeln!(f, "    let mut seed = [0u8; 32];").unwrap();
     // Use black_box on the parameters
-    writeln!(f, "    let start = std::hint::black_box({});", start_offset).unwrap();
-    writeln!(f, "    let step = std::hint::black_box({});", step).unwrap();
+    writeln!(f, "    let start = core::hint::black_box({});", start_offset).unwrap();
+    writeln!(f, "    let step = core::hint::black_box({});", step).unwrap();
     writeln!(f, "    ").unwrap();
     writeln!(f, "    for i in 0..32 {{").unwrap();
     writeln!(f, "        let idx = (start + i * step) % 1024;").unwrap();
