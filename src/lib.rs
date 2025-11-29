@@ -45,6 +45,7 @@ pub mod engine;
 pub mod bytecode;
 pub mod crypto;
 pub mod native;
+pub mod integrity;
 
 // Re-exports
 pub use error::{VmError, VmResult};
@@ -53,6 +54,7 @@ pub use engine::{execute, execute_with_state, execute_with_natives, run, run_wit
 pub use bytecode::{BytecodeHeader, BytecodePackage, ProtectionLevel, BuildInfo};
 pub use crypto::CryptoContext;
 pub use native::{NativeRegistry, NativeRegistryBuilder, NativeFunction, standard_ids};
+pub use integrity::{IntegrityTable, IntegrityError, compute_hash, verify_hash};
 
 /// Build-time generated configuration
 pub mod build_config {
