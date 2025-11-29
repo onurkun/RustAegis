@@ -227,6 +227,18 @@ fn main() {
     println!("cargo:rerun-if-env-changed=ANTICHEAT_CUSTOMER_ID");
     println!("cargo:rerun-if-env-changed=ANTICHEAT_BUILD_SEQ");
     println!("cargo:rerun-if-changed=build.rs");
+
+    // CRITICAL: Force rebuild when seed file changes
+    // This ensures proc-macro output stays in sync with runtime
+    if let Ok(out_dir) = env::var("OUT_DIR") {
+        if let Some(target_dir) = Path::new(&out_dir)
+            .ancestors()
+            .find(|p| p.file_name().is_some_and(|n| n == "target"))
+        {
+            let seed_file = target_dir.join(".anticheat_build_seed");
+            println!("cargo:rerun-if-changed={}", seed_file.display());
+        }
+    }
 }
 
 /// Generate watermark from customer ID, build seed, and timestamp
