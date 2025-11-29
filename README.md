@@ -23,7 +23,7 @@ Add the following to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-aegis_vm = "0.1.2"
+aegis_vm = "0.1.3"
 ```
 
 ## 🛠️ Usage
@@ -139,7 +139,7 @@ cargo install wasm-pack
 ### Cargo.toml Configuration
 ```toml
 [dependencies]
-aegis_vm = { version = "0.1.2", default-features = false }
+aegis_vm = { version = "0.1.3", default-features = false }
 wasm-bindgen = "0.2"
 ```
 
@@ -180,6 +180,28 @@ wasm-pack test --headless --firefox
 The compiled `.wasm` file will be in `pkg/` directory.
 
 ## 📋 Changelog
+
+### v0.1.3
+
+**New Features:**
+*   **ValueCryptor (VMProtect-style):** Constants are now encrypted at compile-time with a chain of 3-7 cryptographic operations (ADD, SUB, XOR, ROL, ROR, NOT, NEG). The decryption chain is emitted as bytecode, preventing constants from appearing in plaintext.
+*   **Region-based Integrity Checking:** Bytecode is divided into 64-byte regions, each with a precomputed FNV-1a hash. Tampering is detected at load time with detailed region identification for Paranoid level.
+*   **Integrity Hash Verification:** All encrypted bytecode now includes a full integrity hash verified after decryption.
+
+**Protection Levels:**
+| Level | ValueCryptor | Full Hash | Region Hash |
+|-------|--------------|-----------|-------------|
+| debug | No | No | No |
+| standard | No | Yes | No |
+| paranoid | Yes | Yes | Yes |
+
+**Note on Runtime Integrity:**
+The current integrity checking protects against **static patching** (modifications to bytecode on disk). Runtime memory patching detection (continuous integrity checks during execution) is intentionally not included in this version to avoid performance overhead. This may be added as an optional feature in future releases for users who require protection against debugger-based runtime patching.
+
+**Improvements:**
+*   332 tests passing (up from ~160)
+*   Better compile-time hash computation using build-specific FNV constants
+*   Cleaner separation between compile-time and runtime integrity modules
 
 ### v0.1.2
 
