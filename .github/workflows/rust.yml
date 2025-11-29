@@ -1,22 +1,45 @@
 name: Rust
-
 on:
-  push:
-    branches: [ "main" ]
-  pull_request:
-    branches: [ "main" ]
+    push:
+      branches: [ "main" ]
+    pull_request:
+      branches: [ "main" ]
 
 env:
-  CARGO_TERM_COLOR: always
+    CARGO_TERM_COLOR: always
 
 jobs:
-  build:
+    build:
+      runs-on: ubuntu-latest
+      steps:
+      - uses: actions/checkout@v4
+      - name: Build
+        run: cargo build --verbose
+      - name: Run tests
+        run: cargo test --verbose
 
-    runs-on: ubuntu-latest
+    # no_std / WASM uyumluluğu
+    wasm:
+      runs-on: ubuntu-latest
+      steps:
+      - uses: actions/checkout@v4
+      - name: Install wasm target
+        run: rustup target add wasm32-unknown-unknown
+      - name: Build WASM
+        run: cargo build --target wasm32-unknown-unknown --no-default-features
 
-    steps:
-    - uses: actions/checkout@v4
-    - name: Build
-      run: cargo build --verbose
-    - name: Run tests
-      run: cargo test --verbose
+    # code quality
+    clippy:
+      runs-on: ubuntu-latest
+      steps:
+      - uses: actions/checkout@v4
+      - name: Clippy
+        run: cargo clippy -- -D warnings
+
+    # formatcontrol
+    fmt:
+      runs-on: ubuntu-latest
+      steps:
+      - uses: actions/checkout@v4
+      - name: Format check
+        run: cargo fmt --check
