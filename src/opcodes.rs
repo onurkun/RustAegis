@@ -266,6 +266,109 @@ pub mod memory {
     pub const STORE64: u8 = 0x67;
 }
 
+/// Vector Operations (Dynamic Arrays)
+/// Layout in heap: [capacity: u64, length: u64, elem_size: u64, data...]
+pub mod vector {
+    /// Create new vector with capacity
+    /// Stack: [capacity, elem_size] -> [vec_addr]
+    /// Format: VEC_NEW
+    pub const VEC_NEW: u8 = 0x80;
+
+    /// Get vector length
+    /// Stack: [vec_addr] -> [length]
+    /// Format: VEC_LEN
+    pub const VEC_LEN: u8 = 0x81;
+
+    /// Get vector capacity
+    /// Stack: [vec_addr] -> [capacity]
+    /// Format: VEC_CAP
+    pub const VEC_CAP: u8 = 0x82;
+
+    /// Push element to vector (auto-grows if needed)
+    /// Stack: [vec_addr, value] -> []
+    /// Format: VEC_PUSH
+    pub const VEC_PUSH: u8 = 0x83;
+
+    /// Pop element from vector
+    /// Stack: [vec_addr] -> [value]
+    /// Format: VEC_POP
+    pub const VEC_POP: u8 = 0x84;
+
+    /// Get element at index (arr[i])
+    /// Stack: [vec_addr, index] -> [value]
+    /// Format: VEC_GET
+    pub const VEC_GET: u8 = 0x85;
+
+    /// Set element at index (arr[i] = x)
+    /// Stack: [vec_addr, index, value] -> []
+    /// Format: VEC_SET
+    pub const VEC_SET: u8 = 0x86;
+
+    /// Create vector with repeated value ([value; count])
+    /// Stack: [value, count, elem_size] -> [vec_addr]
+    /// Format: VEC_REPEAT
+    pub const VEC_REPEAT: u8 = 0x87;
+
+    /// Clear vector (set length to 0)
+    /// Stack: [vec_addr] -> []
+    /// Format: VEC_CLEAR
+    pub const VEC_CLEAR: u8 = 0x88;
+
+    /// Reserve additional capacity
+    /// Stack: [vec_addr, additional] -> []
+    /// Format: VEC_RESERVE
+    pub const VEC_RESERVE: u8 = 0x89;
+}
+
+/// String Operations (UTF-8 byte sequences)
+/// String is Vec<u8> with elem_size=1
+pub mod string {
+    /// Create new string with capacity
+    /// Stack: [capacity] -> [str_addr]
+    /// Format: STR_NEW
+    pub const STR_NEW: u8 = 0x90;
+
+    /// Get string length (byte count)
+    /// Stack: [str_addr] -> [length]
+    /// Format: STR_LEN
+    pub const STR_LEN: u8 = 0x91;
+
+    /// Push byte/char to string
+    /// Stack: [str_addr, byte] -> []
+    /// Format: STR_PUSH
+    pub const STR_PUSH: u8 = 0x92;
+
+    /// Get byte at index
+    /// Stack: [str_addr, index] -> [byte]
+    /// Format: STR_GET
+    pub const STR_GET: u8 = 0x93;
+
+    /// Set byte at index
+    /// Stack: [str_addr, index, byte] -> []
+    /// Format: STR_SET
+    pub const STR_SET: u8 = 0x94;
+
+    /// Compare two strings (0=equal, 1=greater, -1=less)
+    /// Stack: [str1_addr, str2_addr] -> [result]
+    /// Format: STR_CMP
+    pub const STR_CMP: u8 = 0x95;
+
+    /// Check string equality (0 or 1)
+    /// Stack: [str1_addr, str2_addr] -> [0/1]
+    /// Format: STR_EQ
+    pub const STR_EQ: u8 = 0x96;
+
+    /// Hash string (FNV-1a)
+    /// Stack: [str_addr] -> [hash]
+    /// Format: STR_HASH
+    pub const STR_HASH: u8 = 0x97;
+
+    /// Concatenate two strings into new string
+    /// Stack: [str1_addr, str2_addr] -> [new_str_addr]
+    /// Format: STR_CONCAT
+    pub const STR_CONCAT: u8 = 0x98;
+}
+
 /// Heap Operations (Dynamic Memory)
 pub mod heap {
     /// Allocate memory on heap
@@ -429,6 +532,27 @@ pub fn opcode_name(op: u8) -> &'static str {
         memory::STORE16 => "STORE16",
         memory::STORE32 => "STORE32",
         memory::STORE64 => "STORE64",
+
+        vector::VEC_NEW => "VEC_NEW",
+        vector::VEC_LEN => "VEC_LEN",
+        vector::VEC_CAP => "VEC_CAP",
+        vector::VEC_PUSH => "VEC_PUSH",
+        vector::VEC_POP => "VEC_POP",
+        vector::VEC_GET => "VEC_GET",
+        vector::VEC_SET => "VEC_SET",
+        vector::VEC_REPEAT => "VEC_REPEAT",
+        vector::VEC_CLEAR => "VEC_CLEAR",
+        vector::VEC_RESERVE => "VEC_RESERVE",
+
+        string::STR_NEW => "STR_NEW",
+        string::STR_LEN => "STR_LEN",
+        string::STR_PUSH => "STR_PUSH",
+        string::STR_GET => "STR_GET",
+        string::STR_SET => "STR_SET",
+        string::STR_CMP => "STR_CMP",
+        string::STR_EQ => "STR_EQ",
+        string::STR_HASH => "STR_HASH",
+        string::STR_CONCAT => "STR_CONCAT",
 
         heap::HEAP_ALLOC => "HEAP_ALLOC",
         heap::HEAP_FREE => "HEAP_FREE",

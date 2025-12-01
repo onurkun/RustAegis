@@ -44,6 +44,8 @@ pub enum VmError {
     HeapOutOfMemory = 18,
     /// Heap access out of bounds
     HeapOutOfBounds = 19,
+    /// Double-free detected (freeing already freed block)
+    DoubleFree = 20,
 }
 
 impl VmError {
@@ -70,6 +72,7 @@ impl VmError {
             VmError::NativeTooManyArgs => "VM_ERR_NATIVE_TOO_MANY_ARGS",
             VmError::HeapOutOfMemory => "VM_ERR_HEAP_OOM",
             VmError::HeapOutOfBounds => "VM_ERR_HEAP_OOB",
+            VmError::DoubleFree => "VM_ERR_DOUBLE_FREE",
         }
     }
 

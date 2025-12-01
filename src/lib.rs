@@ -41,6 +41,7 @@ pub use aegis_vm_macro::vm_protect;
 pub mod error;
 pub mod opcodes;
 pub mod state;
+pub mod handlers;
 pub mod engine;
 pub mod bytecode;
 pub mod crypto;
