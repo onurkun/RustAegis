@@ -13,14 +13,9 @@
 //! - [expr.array.repeat]: Repeat form `[0; N]` via VEC_REPEAT
 //! - [expr.array.index.array]: Indexing `arr[i]` via VEC_GET/VEC_SET
 
-#[cfg(feature = "std")]
-extern crate std;
-
 #[cfg(not(feature = "std"))]
 extern crate alloc;
 
-#[cfg(feature = "std")]
-use std::vec::Vec;
 #[cfg(not(feature = "std"))]
 use alloc::vec::Vec;
 
@@ -109,9 +104,7 @@ fn vec_write_element(state: &mut VmState, vec_addr: usize, index: u64, elem_size
             // Read source bytes
             let src_bytes = state.heap_read_bytes(src_addr, elem_size_usize)?;
             // Copy to a temporary buffer (to avoid borrow issues)
-            let mut buffer = Vec::with_capacity(elem_size_usize);
-            buffer.resize(elem_size_usize, 0u8);
-            buffer.copy_from_slice(src_bytes);
+            let buffer = src_bytes.to_vec();
             // Write to target offset
             state.heap_write_bytes(offset, &buffer)
         }

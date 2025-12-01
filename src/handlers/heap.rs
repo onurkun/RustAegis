@@ -10,7 +10,7 @@ use crate::state::VmState;
 pub fn handle_heap_alloc(state: &mut VmState) -> VmResult<()> {
     let size = state.pop()? as usize;
     let addr = state.heap_alloc(size)?;
-    state.push(addr as u64)
+    state.push(addr)
 }
 
 /// HEAP_FREE: Free heap memory and return it to free list
