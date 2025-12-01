@@ -2,15 +2,40 @@
 //!
 //! This module defines the VM execution state including:
 //! - Dynamic registers (up to 256, R0-R255)
-//! - Managed heap with bump allocator
+//! - Managed heap with free-list allocator
 //! - Value stack and call stack
 //! - CPU flags and execution control
 
 #[cfg(not(feature = "std"))]
-use alloc::vec::Vec;
+use alloc::{vec, vec::Vec};
 
 use crate::error::{VmError, VmResult};
 use crate::opcodes::flags;
+
+// =============================================================================
+// Free List Allocator Support
+// =============================================================================
+
+/// Size of allocation header (stores block size for free)
+/// Layout: [size_with_flag: u64][user data...]
+/// The MSB of size is used as "allocated" flag for double-free protection
+const ALLOC_HEADER_SIZE: usize = 8;
+
+/// Flag in header MSB indicating block is allocated (not free)
+/// When set: block is in use; When clear: block is free
+const ALLOCATED_FLAG: u64 = 0x8000_0000_0000_0000;
+
+/// Mask to extract actual size from header (clear MSB)
+const SIZE_MASK: u64 = !ALLOCATED_FLAG;
+
+/// Represents a free block in the heap
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct FreeBlock {
+    /// Start address of the free block (including header space)
+    pub addr: usize,
+    /// Total size of the free block (including header)
+    pub size: usize,
+}
 
 // =============================================================================
 // Constants
@@ -69,13 +94,15 @@ pub struct VmState<'a> {
     /// Dynamically sized, grows on demand up to MAX_REGISTERS
     pub regs: Vec<u64>,
 
-    // ========== Heap (Bump Allocator) ==========
+    // ========== Heap (Free-List Allocator) ==========
     /// Managed heap memory
     pub heap: Vec<u8>,
-    /// Current heap allocation pointer (bump pointer)
+    /// Current heap allocation pointer (bump pointer for new allocations)
     pub heap_ptr: usize,
     /// Maximum heap size (DoS protection)
     pub heap_limit: usize,
+    /// Free list for recycled memory blocks
+    pub free_list: Vec<FreeBlock>,
 
     // ========== Stacks ==========
     /// Value stack
@@ -122,6 +149,7 @@ impl<'a> VmState<'a> {
             heap: Vec::with_capacity(DEFAULT_HEAP_CAPACITY),
             heap_ptr: 0,
             heap_limit: DEFAULT_HEAP_SIZE,
+            free_list: Vec::with_capacity(16), // Pre-allocate for common case
             // Stacks
             stack: Vec::with_capacity(64),
             call_stack: Vec::with_capacity(16),
@@ -193,6 +221,7 @@ impl<'a> VmState<'a> {
         // Reset heap
         self.heap.clear();
         self.heap_ptr = 0;
+        self.free_list.clear();
         // Reset stacks
         self.stack.clear();
         self.call_stack.clear();
@@ -285,19 +314,45 @@ impl<'a> VmState<'a> {
     }
 
     // =========================================================================
-    // Heap Operations (Bump Allocator)
+    // Heap Operations (Free-List Allocator)
     // =========================================================================
 
     /// Allocate memory on the heap
-    /// Returns the start address of the allocated block
+    /// Returns the start address of the allocated block (user data, after header)
+    ///
+    /// Layout: [header: u64 (size | ALLOCATED_FLAG)][user data...]
     /// Alignment is guaranteed to be 8-byte aligned
     #[inline]
     pub fn heap_alloc(&mut self, size: usize) -> VmResult<u64> {
-        // Align size to 8 bytes
-        let aligned_size = (size + 7) & !7;
+        // Align user size to 8 bytes
+        let aligned_user_size = (size + 7) & !7;
+        // Total size includes header
+        let total_size = ALLOC_HEADER_SIZE + aligned_user_size;
 
-        // Check if allocation would exceed limit
-        let new_ptr = self.heap_ptr + aligned_size;
+        // Strategy 1: Try to find a suitable block in free list (first-fit)
+        if let Some(idx) = self.find_free_block(total_size) {
+            let block = self.free_list.remove(idx);
+            let user_addr = block.addr + ALLOC_HEADER_SIZE;
+
+            // Write header with size + ALLOCATED_FLAG
+            let header = (total_size as u64) | ALLOCATED_FLAG;
+            self.heap_write_u64_internal(block.addr, header);
+
+            // If block is significantly larger, split it
+            let remaining = block.size - total_size;
+            if remaining >= ALLOC_HEADER_SIZE + 8 {
+                // Put remainder back in free list (sorted insert)
+                self.insert_free_block_sorted(FreeBlock {
+                    addr: block.addr + total_size,
+                    size: remaining,
+                });
+            }
+
+            return Ok(user_addr as u64);
+        }
+
+        // Strategy 2: Bump allocate from end
+        let new_ptr = self.heap_ptr + total_size;
         if new_ptr > self.heap_limit {
             return Err(VmError::HeapOutOfMemory);
         }
@@ -307,11 +362,130 @@ impl<'a> VmState<'a> {
             self.heap.resize(new_ptr, 0);
         }
 
-        // Record allocation start
-        let addr = self.heap_ptr as u64;
+        // Write header with size + ALLOCATED_FLAG
+        let block_addr = self.heap_ptr;
+        let header = (total_size as u64) | ALLOCATED_FLAG;
+        self.heap_write_u64_internal(block_addr, header);
+
+        // User address is after header
+        let user_addr = block_addr + ALLOC_HEADER_SIZE;
         self.heap_ptr = new_ptr;
 
-        Ok(addr)
+        Ok(user_addr as u64)
+    }
+
+    /// Find a free block that can fit the requested size (first-fit)
+    #[inline]
+    fn find_free_block(&self, total_size: usize) -> Option<usize> {
+        self.free_list
+            .iter()
+            .position(|block| block.size >= total_size)
+    }
+
+    /// Internal write for header (bypasses bounds check since we're writing to new area)
+    #[inline]
+    fn heap_write_u64_internal(&mut self, addr: usize, value: u64) {
+        let bytes = value.to_le_bytes();
+        self.heap[addr..addr + 8].copy_from_slice(&bytes);
+    }
+
+    /// Free a previously allocated block
+    /// Returns the freed block back to the free list for reuse
+    ///
+    /// Double-free protection: checks ALLOCATED_FLAG in header
+    pub fn heap_free(&mut self, user_addr: usize) -> VmResult<()> {
+        if user_addr < ALLOC_HEADER_SIZE {
+            return Err(VmError::HeapOutOfBounds);
+        }
+
+        // Header is right before user data
+        let header_addr = user_addr - ALLOC_HEADER_SIZE;
+
+        // Read header (contains size | ALLOCATED_FLAG)
+        let header = self.heap_read_u64(header_addr)?;
+
+        // Double-free protection: check if block is still allocated
+        if header & ALLOCATED_FLAG == 0 {
+            // Block is already free - this is a double-free!
+            return Err(VmError::DoubleFree);
+        }
+
+        // Extract actual size (mask out the flag)
+        let total_size = (header & SIZE_MASK) as usize;
+        if total_size == 0 || total_size > self.heap_ptr {
+            return Err(VmError::HeapOutOfBounds);
+        }
+
+        // Clear ALLOCATED_FLAG in header (mark as free)
+        self.heap_write_u64_internal(header_addr, total_size as u64);
+
+        // Create free block and add to list with merge
+        let new_block = FreeBlock {
+            addr: header_addr,
+            size: total_size,
+        };
+        self.add_free_block_with_merge(new_block);
+
+        Ok(())
+    }
+
+    /// Insert a free block into the sorted free list (binary search)
+    fn insert_free_block_sorted(&mut self, block: FreeBlock) {
+        let pos = self.free_list
+            .binary_search_by_key(&block.addr, |b| b.addr)
+            .unwrap_or_else(|i| i);
+        self.free_list.insert(pos, block);
+    }
+
+    /// Add a free block to the list, merging with adjacent blocks if possible
+    /// Optimized: uses binary search, no full sort needed
+    fn add_free_block_with_merge(&mut self, mut block: FreeBlock) {
+        // Find insertion position using binary search
+        let pos = self.free_list
+            .binary_search_by_key(&block.addr, |b| b.addr)
+            .unwrap_or_else(|i| i);
+
+        // Check if we can merge with previous block
+        if pos > 0 {
+            let prev = &self.free_list[pos - 1];
+            if prev.addr + prev.size == block.addr {
+                // Merge with previous: extend previous block
+                block.addr = prev.addr;
+                block.size += prev.size;
+                self.free_list.remove(pos - 1);
+                // Recurse to check for more merges (now at pos-1)
+                return self.add_free_block_with_merge(block);
+            }
+        }
+
+        // Check if we can merge with next block
+        if pos < self.free_list.len() {
+            let next = &self.free_list[pos];
+            if block.addr + block.size == next.addr {
+                // Merge with next: extend our block
+                block.size += next.size;
+                self.free_list.remove(pos);
+                // Recurse to check for more merges
+                return self.add_free_block_with_merge(block);
+            }
+        }
+
+        // No merge possible, insert at correct position
+        self.free_list.insert(pos, block);
+    }
+
+    /// Get total free space available (free list + remaining bump space)
+    #[inline]
+    pub fn heap_free_space(&self) -> usize {
+        let free_list_space: usize = self.free_list.iter().map(|b| b.size).sum();
+        let bump_space = self.heap_limit.saturating_sub(self.heap_ptr);
+        free_list_space + bump_space
+    }
+
+    /// Get number of blocks in free list
+    #[inline]
+    pub fn free_block_count(&self) -> usize {
+        self.free_list.len()
     }
 
     /// Read byte from heap
@@ -365,9 +539,10 @@ impl<'a> VmState<'a> {
     }
 
     /// Write byte to heap
+    /// Note: Uses heap.len() for bounds check (not heap_ptr) to support free-list reuse
     #[inline]
     pub fn heap_write_u8(&mut self, addr: usize, value: u8) -> VmResult<()> {
-        if addr >= self.heap_ptr {
+        if addr >= self.heap.len() {
             return Err(VmError::HeapOutOfBounds);
         }
         self.heap[addr] = value;
@@ -377,7 +552,7 @@ impl<'a> VmState<'a> {
     /// Write u16 to heap (little-endian)
     #[inline]
     pub fn heap_write_u16(&mut self, addr: usize, value: u16) -> VmResult<()> {
-        if addr + 2 > self.heap_ptr {
+        if addr + 2 > self.heap.len() {
             return Err(VmError::HeapOutOfBounds);
         }
         let bytes = value.to_le_bytes();
@@ -388,7 +563,7 @@ impl<'a> VmState<'a> {
     /// Write u32 to heap (little-endian)
     #[inline]
     pub fn heap_write_u32(&mut self, addr: usize, value: u32) -> VmResult<()> {
-        if addr + 4 > self.heap_ptr {
+        if addr + 4 > self.heap.len() {
             return Err(VmError::HeapOutOfBounds);
         }
         let bytes = value.to_le_bytes();
@@ -399,7 +574,7 @@ impl<'a> VmState<'a> {
     /// Write u64 to heap (little-endian)
     #[inline]
     pub fn heap_write_u64(&mut self, addr: usize, value: u64) -> VmResult<()> {
-        if addr + 8 > self.heap_ptr {
+        if addr + 8 > self.heap.len() {
             return Err(VmError::HeapOutOfBounds);
         }
         let bytes = value.to_le_bytes();
@@ -410,7 +585,7 @@ impl<'a> VmState<'a> {
     /// Write bytes to heap
     #[inline]
     pub fn heap_write_bytes(&mut self, addr: usize, data: &[u8]) -> VmResult<()> {
-        if addr + data.len() > self.heap_ptr {
+        if addr + data.len() > self.heap.len() {
             return Err(VmError::HeapOutOfBounds);
         }
         self.heap[addr..addr + data.len()].copy_from_slice(data);
@@ -442,37 +617,6 @@ impl<'a> VmState<'a> {
     #[inline]
     pub fn heap_remaining(&self) -> usize {
         self.heap_limit.saturating_sub(self.heap_ptr)
-    }
-
-    // =========================================================================
-    // String Operations (Heap-based)
-    // =========================================================================
-
-    /// Allocate and write a string to heap
-    /// Returns address of the string (length-prefixed: u64 length + bytes)
-    pub fn heap_alloc_string(&mut self, s: &str) -> VmResult<u64> {
-        let bytes = s.as_bytes();
-        let total_size = 8 + bytes.len(); // 8 bytes for length + string data
-
-        let addr = self.heap_alloc(total_size)?;
-        let addr_usize = addr as usize;
-
-        // Write length prefix
-        self.heap_write_u64(addr_usize, bytes.len() as u64)?;
-        // Write string data
-        if !bytes.is_empty() {
-            self.heap_write_bytes(addr_usize + 8, bytes)?;
-        }
-
-        Ok(addr)
-    }
-
-    /// Read a string from heap (length-prefixed format)
-    pub fn heap_read_string(&self, addr: u64) -> VmResult<&str> {
-        let addr_usize = addr as usize;
-        let len = self.heap_read_u64(addr_usize)? as usize;
-        let bytes = self.heap_read_bytes(addr_usize + 8, len)?;
-        core::str::from_utf8(bytes).map_err(|_| VmError::HeapOutOfBounds)
     }
 
     // =========================================================================
@@ -780,14 +924,16 @@ mod tests {
         let input = &[];
         let mut state = VmState::new(code, input);
 
-        // Allocate some memory
+        // Allocate some memory (now includes 8-byte header)
+        // Layout: [header:8][user_data:104] = 112 bytes total
         let addr1 = state.heap_alloc(100).unwrap();
-        assert_eq!(addr1, 0);
-        assert_eq!(state.heap_used(), 104); // Aligned to 8
+        assert_eq!(addr1, 8); // User addr is after 8-byte header
+        assert_eq!(state.heap_used(), 112); // 8 (header) + 104 (aligned user data)
 
+        // Second allocation: [header:8][user_data:56] = 64 bytes
         let addr2 = state.heap_alloc(50).unwrap();
-        assert_eq!(addr2, 104);
-        assert_eq!(state.heap_used(), 160); // 104 + 56 (aligned)
+        assert_eq!(addr2, 120); // 112 + 8 (header)
+        assert_eq!(state.heap_used(), 176); // 112 + 64
     }
 
     #[test]
@@ -807,30 +953,20 @@ mod tests {
     }
 
     #[test]
-    fn test_heap_string() {
-        let code = &[];
-        let input = &[];
-        let mut state = VmState::new(code, input);
-
-        // Allocate string
-        let addr = state.heap_alloc_string("Hello, VM!").unwrap();
-
-        // Read back
-        let s = state.heap_read_string(addr).unwrap();
-        assert_eq!(s, "Hello, VM!");
-    }
-
-    #[test]
     fn test_heap_limit() {
         let code = &[];
         let input = &[];
-        let mut state = VmState::with_heap_limit(code, input, 100);
+        // Limit must account for header overhead (8 bytes per allocation)
+        let mut state = VmState::with_heap_limit(code, input, 200);
 
-        // First allocation should succeed
+        // First allocation: 8 (header) + 56 (aligned 50) = 64 bytes
         state.heap_alloc(50).unwrap();
 
-        // Second allocation should fail (exceeds limit)
-        let result = state.heap_alloc(100);
+        // Second allocation: needs 8 + 104 = 112 bytes, total would be 176 < 200
+        state.heap_alloc(100).unwrap();
+
+        // Third allocation should fail (64 + 112 + 64 = 240 > 200)
+        let result = state.heap_alloc(50);
         assert_eq!(result, Err(VmError::HeapOutOfMemory));
     }
 
@@ -852,5 +988,118 @@ mod tests {
         assert_eq!(state.reg_count(), DEFAULT_REGISTER_CAPACITY);
         assert_eq!(state.heap_used(), 0);
         assert_eq!(state.stack_len(), 0);
+        assert_eq!(state.free_block_count(), 0);
+    }
+
+    #[test]
+    fn test_heap_free_basic() {
+        let code = &[];
+        let input = &[];
+        let mut state = VmState::new(code, input);
+
+        // Allocate memory
+        let addr = state.heap_alloc(100).unwrap() as usize;
+        let heap_after_alloc = state.heap_used();
+        assert_eq!(state.free_block_count(), 0);
+
+        // Free it
+        state.heap_free(addr).unwrap();
+        assert_eq!(state.free_block_count(), 1);
+
+        // heap_ptr doesn't change, but free list has the block
+        assert_eq!(state.heap_used(), heap_after_alloc);
+    }
+
+    #[test]
+    fn test_heap_free_reuse() {
+        let code = &[];
+        let input = &[];
+        let mut state = VmState::new(code, input);
+
+        // Allocate 3 blocks
+        let addr1 = state.heap_alloc(100).unwrap() as usize;
+        let addr2 = state.heap_alloc(100).unwrap() as usize;
+        let _addr3 = state.heap_alloc(100).unwrap();
+
+        let heap_after_allocs = state.heap_used();
+
+        // Free middle block
+        state.heap_free(addr2).unwrap();
+        assert_eq!(state.free_block_count(), 1);
+
+        // Allocate again - should reuse freed block
+        let addr4 = state.heap_alloc(100).unwrap() as usize;
+        assert_eq!(addr4, addr2); // Same address reused!
+        assert_eq!(state.heap_used(), heap_after_allocs); // No growth
+
+        // Free first block
+        state.heap_free(addr1).unwrap();
+
+        // Allocate smaller - should reuse and possibly split
+        let addr5 = state.heap_alloc(50).unwrap() as usize;
+        assert_eq!(addr5, addr1); // Reused first block
+    }
+
+    #[test]
+    fn test_heap_free_merge_adjacent() {
+        let code = &[];
+        let input = &[];
+        let mut state = VmState::new(code, input);
+
+        // Allocate 3 adjacent blocks
+        let addr1 = state.heap_alloc(64).unwrap() as usize;
+        let addr2 = state.heap_alloc(64).unwrap() as usize;
+        let addr3 = state.heap_alloc(64).unwrap() as usize;
+
+        // Free in order: 1, 3, then 2
+        state.heap_free(addr1).unwrap();
+        assert_eq!(state.free_block_count(), 1);
+
+        state.heap_free(addr3).unwrap();
+        assert_eq!(state.free_block_count(), 2);
+
+        // Free middle - should merge all three into one block
+        state.heap_free(addr2).unwrap();
+        assert_eq!(state.free_block_count(), 1); // Merged!
+
+        // The merged block should be large enough for a bigger allocation
+        let big_addr = state.heap_alloc(200).unwrap() as usize;
+        assert_eq!(big_addr, addr1); // Reused merged block
+    }
+
+    #[test]
+    fn test_heap_free_invalid() {
+        let code = &[];
+        let input = &[];
+        let mut state = VmState::new(code, input);
+
+        // Try to free invalid address (too small, before header would be)
+        let result = state.heap_free(4);
+        assert_eq!(result, Err(VmError::HeapOutOfBounds));
+
+        // Allocate something
+        let _addr = state.heap_alloc(100).unwrap();
+
+        // Try to free address 0 (where header would be negative)
+        let result = state.heap_free(0);
+        assert_eq!(result, Err(VmError::HeapOutOfBounds));
+    }
+
+    #[test]
+    fn test_heap_free_space() {
+        let code = &[];
+        let input = &[];
+        let mut state = VmState::with_heap_limit(code, input, 1000);
+
+        let initial_free = state.heap_free_space();
+        assert_eq!(initial_free, 1000);
+
+        // Allocate 100 bytes (+ 8 header = 108, aligned to 112)
+        let addr = state.heap_alloc(100).unwrap() as usize;
+        assert_eq!(state.heap_free_space(), 1000 - 112);
+
+        // Free it - free space should include free list block
+        state.heap_free(addr).unwrap();
+        assert_eq!(state.heap_free_space(), 1000 - 112 + 112); // Back to 1000
     }
 }

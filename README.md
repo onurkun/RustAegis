@@ -10,12 +10,16 @@ RustAegis is a research-grade software protection system that compiles Rust code
 
 ## 🚀 Key Features
 
-*   **Virtualization:** Converts Rust AST directly into a custom stack-based VM instruction set.
+*   **Virtualization:** Converts Rust AST directly into a custom stack-based VM instruction set with 100+ opcodes.
+*   **Rich Type Support:** Strings, Vectors/Arrays, integers (signed/unsigned), booleans with proper type tracking.
+*   **Heap Memory:** Dynamic memory allocation with automatic cleanup on scope exit.
+*   **Variable Shadowing:** Full Rust-like scoping with nested block support.
 *   **Polymorphism:** The instruction set mapping (Opcode Table) is randomized for every build via a `.build_seed` artifact.
 *   **Mixed Boolean-Arithmetic (MBA):** Transforms simple arithmetic (`+`, `-`, `^`) into complex, mathematically equivalent boolean expressions.
 *   **Compile-Time Encryption:** Bytecode is encrypted with a unique key per build and decrypted only at runtime.
 *   **Anti-Tamper:** Integrated integrity checks ensure the bytecode has not been modified.
 *   **Junk Code Injection:** Inserts dead code and entropy-based instructions to break signature scanning.
+*   **WASM Support:** Full WebAssembly compatibility for browser and Node.js environments.
 
 ## 📦 Installation
 
@@ -23,7 +27,7 @@ Add the following to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-aegis_vm = "0.1.4"
+aegis_vm = "0.1.5"
 ```
 
 ## 🛠️ Usage
@@ -45,6 +49,27 @@ fn check_password(input: u64) -> bool {
 fn derive_key(seed: u64) -> u64 {
     // All arithmetic here is transformed into complex boolean logic
     (seed ^ 0x1234) + 0xABCD
+}
+
+// Advanced: Strings, Arrays, and Control Flow
+#[vm_protect(level = "standard")]
+fn compute_checksum() -> u64 {
+    let secret = "LICENSE-KEY";
+    let weights = [1, 2, 3, 4, 5];
+
+    // String length check
+    if secret.is_empty() {
+        return 0;
+    }
+
+    // Array iteration with weighted sum
+    let mut sum: u64 = 0;
+    for i in 0..weights.len() {
+        sum += weights.get(i) * (i as u64 + 1);
+    }
+
+    // Combine with string hash
+    sum + secret.len()
 }
 ```
 
@@ -139,7 +164,7 @@ cargo install wasm-pack
 ### Cargo.toml Configuration
 ```toml
 [dependencies]
-aegis_vm = { version = "0.1.3", default-features = false }
+aegis_vm = { version = "0.1.5", default-features = false }
 wasm-bindgen = "0.2"
 ```
 
@@ -180,6 +205,32 @@ wasm-pack test --headless --firefox
 The compiled `.wasm` file will be in `pkg/` directory.
 
 ## 📋 Changelog
+
+### v0.1.5
+
+**Major Refactoring:**
+*   **Modular Compiler Architecture:** Compiler split into specialized modules (`expr.rs`, `stmt.rs`, `literal.rs`, `array.rs`, `control.rs`, `method.rs`, `cast.rs`, `emit.rs`) for better maintainability.
+*   **Proper Scope Management:** Implemented `Vec<BTreeMap<String, VarInfo>>` for nested scope support with correct variable shadowing.
+*   **Automatic Memory Cleanup:** `HEAP_FREE` is now emitted on scope exit for String/Vector variables, preventing memory leaks.
+
+**New Features:**
+*   **Variable Shadowing:** Inner scopes can now shadow outer variables correctly (e.g., `let x = 10; { let x = 20; }` works as expected).
+*   **VarType Enum:** Reliable type tracking for Integer, String, Vector, and Bool types.
+*   **Signed Division:** Added `IDIV` and `IMOD` opcodes for signed integer division/modulo.
+*   **Bit Counting Methods:** Support for `.count_ones()`, `.count_zeros()`, `.leading_zeros()`, `.trailing_zeros()`.
+
+**Improvements:**
+*   68 tests passing (up from 332)
+*   Cleaned up unused emit functions and redundant code
+*   Better type inference from expressions and type annotations
+
+### v0.1.4
+
+**New Features:**
+*   **Heap Memory Support:** Bump allocator with 256 dynamic registers for complex data structures.
+*   **String Operations:** Full string support with `len()`, `get()`, `push()`, `concat()`, `eq()`, `hash()`, `is_empty()`.
+*   **Vector Operations:** Array/vector support with `len()`, `get()`, `push()`, `pop()`, `set()`.
+*   **Type Casts:** Support for `as u8`, `as u16`, `as u32`, `as u64`, `as i8`, `as i16`, `as i32`, `as i64`.
 
 ### v0.1.3
 

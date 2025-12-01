@@ -18,32 +18,35 @@ mod allocation {
 
     #[test]
     fn test_basic_alloc_returns_zero() {
-        // First allocation should return address 0
+        // First allocation returns address 8 (after 8-byte header)
         let code = [
             stack::PUSH_IMM8, 16,
             heap::HEAP_ALLOC,
             exec::HALT,
         ];
-        assert_eq!(execute(&code, &[]), Ok(0));
+        assert_eq!(execute(&code, &[]), Ok(8)); // 8 = header size
     }
 
     #[test]
     fn test_sequential_allocs_increment() {
         // Multiple allocations return sequential addresses
+        // First: header(8) + data(8) = 16 total, user addr = 8
+        // Second: header at 16, user addr = 24
         let code = [
             stack::PUSH_IMM8, 8,
-            heap::HEAP_ALLOC,        // addr 0
+            heap::HEAP_ALLOC,        // user addr 8
             stack::DROP,
             stack::PUSH_IMM8, 8,
-            heap::HEAP_ALLOC,        // addr 8
+            heap::HEAP_ALLOC,        // user addr 24
             exec::HALT,
         ];
-        assert_eq!(execute(&code, &[]), Ok(8));
+        assert_eq!(execute(&code, &[]), Ok(24));
     }
 
     #[test]
     fn test_alignment_to_8_bytes() {
-        // 1-byte allocation should align to 8 bytes
+        // 1-byte allocation: header(8) + aligned(8) = 16 total
+        // Second allocation starts at 16+8 = 24
         let code = [
             stack::PUSH_IMM8, 1,
             heap::HEAP_ALLOC,
@@ -52,12 +55,13 @@ mod allocation {
             heap::HEAP_ALLOC,
             exec::HALT,
         ];
-        assert_eq!(execute(&code, &[]), Ok(8));
+        assert_eq!(execute(&code, &[]), Ok(24));
     }
 
     #[test]
     fn test_alignment_7_bytes() {
-        // 7-byte allocation should align to 8 bytes
+        // 7-byte allocation: header(8) + aligned(8) = 16 total
+        // Second allocation starts at 16+8 = 24
         let code = [
             stack::PUSH_IMM8, 7,
             heap::HEAP_ALLOC,
@@ -66,12 +70,13 @@ mod allocation {
             heap::HEAP_ALLOC,
             exec::HALT,
         ];
-        assert_eq!(execute(&code, &[]), Ok(8));
+        assert_eq!(execute(&code, &[]), Ok(24));
     }
 
     #[test]
     fn test_alignment_9_bytes() {
-        // 9-byte allocation should round up to 16 bytes
+        // 9-byte allocation: header(8) + aligned(16) = 24 total
+        // Second allocation starts at 24+8 = 32
         let code = [
             stack::PUSH_IMM8, 9,
             heap::HEAP_ALLOC,
@@ -80,7 +85,7 @@ mod allocation {
             heap::HEAP_ALLOC,
             exec::HALT,
         ];
-        assert_eq!(execute(&code, &[]), Ok(16));
+        assert_eq!(execute(&code, &[]), Ok(32));
     }
 
     #[test]
@@ -100,7 +105,7 @@ mod allocation {
 
     #[test]
     fn test_large_allocation() {
-        // Allocate 1000 bytes
+        // Allocate 1000 bytes: header(8) + data(1000) = 1008
         let code = [
             stack::PUSH_IMM16, 0xE8, 0x03,  // 1000 in little-endian
             heap::HEAP_ALLOC,
@@ -109,7 +114,7 @@ mod allocation {
             exec::HALT,
         ];
         let result = execute(&code, &[]);
-        assert_eq!(result, Ok(1000));  // 1000 aligned to 8 = 1000
+        assert_eq!(result, Ok(1008));  // 8 (header) + 1000 (aligned)
     }
 }
 
@@ -131,6 +136,7 @@ mod heap_size {
 
     #[test]
     fn test_size_after_single_alloc() {
+        // 100 bytes: header(8) + aligned(104) = 112
         let code = [
             stack::PUSH_IMM8, 100,
             heap::HEAP_ALLOC,
@@ -138,11 +144,14 @@ mod heap_size {
             heap::HEAP_SIZE,
             exec::HALT,
         ];
-        assert_eq!(execute(&code, &[]), Ok(104)); // 100 aligned to 8 = 104
+        assert_eq!(execute(&code, &[]), Ok(112)); // 8 (header) + 104 (aligned)
     }
 
     #[test]
     fn test_size_accumulation() {
+        // Each allocation: header(8) + aligned_data
+        // alloc(8): 8+8=16, alloc(16): 8+16=24, alloc(24): 8+24=32
+        // Total: 16+24+32 = 72
         let code = [
             stack::PUSH_IMM8, 8,
             heap::HEAP_ALLOC,
@@ -156,7 +165,7 @@ mod heap_size {
             heap::HEAP_SIZE,
             exec::HALT,
         ];
-        assert_eq!(execute(&code, &[]), Ok(48)); // 8 + 16 + 24 = 48
+        assert_eq!(execute(&code, &[]), Ok(72)); // (8+8)+(8+16)+(8+24) = 72
     }
 }
 
@@ -169,7 +178,8 @@ mod heap_free {
 
     #[test]
     fn test_free_is_noop() {
-        // Free should not affect heap size (bump allocator)
+        // Free adds block to free list, heap_ptr stays same
+        // alloc(8): header(8) + data(8) = 16 total
         let code = [
             stack::PUSH_IMM8, 8,
             heap::HEAP_ALLOC,
@@ -177,11 +187,14 @@ mod heap_free {
             heap::HEAP_SIZE,
             exec::HALT,
         ];
-        assert_eq!(execute(&code, &[]), Ok(8));
+        assert_eq!(execute(&code, &[]), Ok(16)); // heap_ptr unchanged
     }
 
     #[test]
-    fn test_free_multiple() {
+    fn test_free_reuse() {
+        // Free then alloc same size should reuse freed block
+        // First alloc: header(8) + data(8) = 16
+        // Free it, second alloc reuses it -> heap_size stays 16
         let code = [
             stack::PUSH_IMM8, 8,
             heap::HEAP_ALLOC,
@@ -192,7 +205,7 @@ mod heap_free {
             heap::HEAP_SIZE,
             exec::HALT,
         ];
-        assert_eq!(execute(&code, &[]), Ok(16));
+        assert_eq!(execute(&code, &[]), Ok(16)); // Reused, no growth
     }
 }
 
@@ -405,12 +418,13 @@ mod error_handling {
 
     #[test]
     fn test_u16_partial_overflow() {
-        // Allocate 8 bytes, try to load u16 at offset 7 (would read byte 7 and 8)
+        // Allocate 8 bytes (user addr=8), try to load u16 at user_addr+7 (would read beyond)
+        // user data: [8..16), reading at 15 would need bytes 15,16 but 16 is out
         let code = [
             stack::PUSH_IMM8, 8,
             heap::HEAP_ALLOC,
             stack::DROP,
-            stack::PUSH_IMM8, 7,
+            stack::PUSH_IMM8, 15,    // 8 (user addr) + 7 = 15
             heap::HEAP_LOAD16,
             exec::HALT,
         ];
@@ -419,12 +433,13 @@ mod error_handling {
 
     #[test]
     fn test_u32_partial_overflow() {
-        // Allocate 8 bytes, try to load u32 at offset 6
+        // Allocate 8 bytes (user addr=8), try to load u32 at user_addr+6
+        // reading at 14 needs bytes 14,15,16,17 but heap ends at 16
         let code = [
             stack::PUSH_IMM8, 8,
             heap::HEAP_ALLOC,
             stack::DROP,
-            stack::PUSH_IMM8, 6,
+            stack::PUSH_IMM8, 14,    // 8 (user addr) + 6 = 14
             heap::HEAP_LOAD32,
             exec::HALT,
         ];
@@ -433,12 +448,13 @@ mod error_handling {
 
     #[test]
     fn test_u64_partial_overflow() {
-        // Allocate 8 bytes, try to load u64 at offset 1
+        // Allocate 8 bytes (user addr=8), try to load u64 at user_addr+1
+        // reading at 9 needs bytes 9-16 but heap ends at 16, byte 16 out of bounds
         let code = [
             stack::PUSH_IMM8, 8,
             heap::HEAP_ALLOC,
             stack::DROP,
-            stack::PUSH_IMM8, 1,
+            stack::PUSH_IMM8, 9,     // 8 (user addr) + 1 = 9
             heap::HEAP_LOAD64,
             exec::HALT,
         ];
@@ -488,16 +504,16 @@ mod data_structures {
 
             stack::DROP,
 
-            // Sum all values
-            stack::PUSH_IMM8, 0,
-            heap::HEAP_LOAD64,
+            // Sum all values (base addr is 8 after header)
             stack::PUSH_IMM8, 8,
             heap::HEAP_LOAD64,
-            arithmetic::ADD,
             stack::PUSH_IMM8, 16,
             heap::HEAP_LOAD64,
             arithmetic::ADD,
             stack::PUSH_IMM8, 24,
+            heap::HEAP_LOAD64,
+            arithmetic::ADD,
+            stack::PUSH_IMM8, 32,
             heap::HEAP_LOAD64,
             arithmetic::ADD,
 
@@ -509,29 +525,30 @@ mod data_structures {
     #[test]
     fn test_linked_blocks() {
         // Allocate two blocks, store pointer in first, follow it
+        // block1: header@0, data@8; block2: header@24, data@32
         let code = [
-            // Allocate block1
+            // Allocate block1 (16 bytes)
             stack::PUSH_IMM8, 16,
-            heap::HEAP_ALLOC,        // block1 = 0
+            heap::HEAP_ALLOC,        // block1 = 8
 
-            // Allocate block2
+            // Allocate block2 (16 bytes)
             stack::PUSH_IMM8, 16,
-            heap::HEAP_ALLOC,        // block2 = 16
+            heap::HEAP_ALLOC,        // block2 = 32
 
             // Store block2 address in block1[0]
-            stack::PUSH_IMM8, 0,
+            stack::PUSH_IMM8, 8,     // block1 addr
             stack::SWAP,
             heap::HEAP_STORE64,
 
             // Store 999 in block2[0]
-            stack::PUSH_IMM8, 16,
+            stack::PUSH_IMM8, 32,    // block2 addr
             stack::PUSH_IMM16, 0xE7, 0x03,  // 999
             heap::HEAP_STORE64,
 
             // Follow pointer: load block1[0]
-            stack::PUSH_IMM8, 0,
+            stack::PUSH_IMM8, 8,     // block1 addr
             heap::HEAP_LOAD64,
-            // Now stack has block2 address (16)
+            // Now stack has block2 address (32)
             heap::HEAP_LOAD64,       // Load block2[0] = 999
 
             exec::HALT,
@@ -648,6 +665,8 @@ mod stress {
 
     #[test]
     fn test_100_small_allocations() {
+        // Each allocation: header(8) + data(8) = 16 bytes
+        // 100 * 16 = 1600
         let mut code = Vec::new();
 
         for _ in 0..100 {
@@ -660,11 +679,12 @@ mod stress {
         code.push(heap::HEAP_SIZE);
         code.push(exec::HALT);
 
-        assert_eq!(execute(&code, &[]), Ok(800));
+        assert_eq!(execute(&code, &[]), Ok(1600));
     }
 
     #[test]
     fn test_1000_store_load_cycles() {
+        // alloc(8): header(8) + data(8) = 16 bytes
         let mut code = Vec::new();
 
         // Allocate buffer
@@ -672,7 +692,7 @@ mod stress {
         code.push(8);
         code.push(heap::HEAP_ALLOC);
 
-        // Repeat store/load 1000 times
+        // Repeat store/load 100 times
         for i in 0..100 {
             // Store i
             code.push(stack::DUP);
@@ -690,14 +710,16 @@ mod stress {
         code.push(heap::HEAP_SIZE);
         code.push(exec::HALT);
 
-        assert_eq!(execute(&code, &[]), Ok(8));
+        assert_eq!(execute(&code, &[]), Ok(16)); // 8 (header) + 8 (data)
     }
 
     #[test]
     fn test_varying_allocation_sizes() {
+        // Each allocation adds 8-byte header
+        // sizes: 1->8, 2->8, 4->8, 8, 16, 32, 64 (aligned)
+        // totals: 16, 16, 16, 16, 24, 40, 72 = 200
         let mut code = Vec::new();
 
-        // Allocate sizes: 1, 2, 4, 8, 16, 32, 64
         for size in [1, 2, 4, 8, 16, 32, 64].iter() {
             code.push(stack::PUSH_IMM8);
             code.push(*size as u8);
@@ -708,15 +730,17 @@ mod stress {
         code.push(heap::HEAP_SIZE);
         code.push(exec::HALT);
 
-        // 8+8+8+8+16+32+64 = 144 (1,2,4 round up to 8)
-        assert_eq!(execute(&code, &[]), Ok(144));
+        assert_eq!(execute(&code, &[]), Ok(200));
     }
 
     #[test]
     fn test_alternating_sizes() {
+        // Alternate between 8 and 16 bytes user data
+        // 8 bytes: header(8) + data(8) = 16
+        // 16 bytes: header(8) + data(16) = 24
+        // 25*16 + 25*24 = 400 + 600 = 1000
         let mut code = Vec::new();
 
-        // Alternate between 8 and 16 bytes
         for i in 0..50 {
             let size = if i % 2 == 0 { 8 } else { 16 };
             code.push(stack::PUSH_IMM8);
@@ -728,8 +752,7 @@ mod stress {
         code.push(heap::HEAP_SIZE);
         code.push(exec::HALT);
 
-        // 25*8 + 25*16 = 200 + 400 = 600
-        assert_eq!(execute(&code, &[]), Ok(600));
+        assert_eq!(execute(&code, &[]), Ok(1000));
     }
 }
 
@@ -925,12 +948,14 @@ mod patterns {
     #[test]
     fn test_sequential_values() {
         // Store sequential values 0-7
+        // alloc(64) returns user addr 8 (after 8-byte header)
         let mut code = Vec::new();
 
         code.push(stack::PUSH_IMM8);
         code.push(64);
-        code.push(heap::HEAP_ALLOC);
+        code.push(heap::HEAP_ALLOC);  // returns 8
 
+        // Store: use base_addr (on stack) + offset
         for i in 0..8 {
             code.push(stack::DUP);
             code.push(stack::PUSH_IMM8);
@@ -941,16 +966,18 @@ mod patterns {
             code.push(heap::HEAP_STORE64);
         }
 
-        // Sum all values: 0+1+2+3+4+5+6+7 = 28
+        // Drop base_addr after stores
         code.push(stack::DROP);
 
+        // Sum all values: 0+1+2+3+4+5+6+7 = 28
+        // Load using static addresses (8 + i*8)
         for i in 0..8 {
             code.push(stack::PUSH_IMM8);
-            code.push(i * 8);
+            code.push(8 + i * 8);  // static address: 8, 16, 24, ...
             code.push(heap::HEAP_LOAD64);
         }
 
-        // Sum them
+        // Sum them: stack has [v0, v1, v2, v3, v4, v5, v6, v7]
         for _ in 0..7 {
             code.push(arithmetic::ADD);
         }
