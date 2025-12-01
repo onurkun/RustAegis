@@ -261,3 +261,161 @@ fn test_while_with_return() {
     assert_eq!(while_with_return(5), 5);
     assert_eq!(while_with_return(100), 100);
 }
+
+// ============================================================================
+// MEMORY CLEANUP ON EARLY EXIT TESTS
+// Tests that heap memory is properly freed on break, continue, and return
+// ============================================================================
+
+/// Test that structs are cleaned up on break
+#[vm_protect(level = "debug")]
+fn break_with_struct_cleanup() -> u64 {
+    struct Data { x: u64, y: u64 }
+
+    let mut result = 0;
+    for i in 0..10 {
+        let d = Data { x: i, y: i * 2 };  // Allocates on heap
+        result = result + d.x;
+        if i == 5 {
+            break;  // Should free 'd' before jumping
+        }
+        // d would normally be freed here at end of scope
+    }
+    result  // 0 + 1 + 2 + 3 + 4 + 5 = 15
+}
+
+/// Test that tuples are cleaned up on break
+#[vm_protect(level = "debug")]
+fn break_with_tuple_cleanup() -> u64 {
+    let mut sum = 0;
+    for i in 0..10 {
+        let t = (i, i + 1, i + 2);  // Tuple on heap
+        sum = sum + t.0 + t.1 + t.2;
+        if i == 3 {
+            break;  // Should free 't' before jumping
+        }
+    }
+    sum  // (0+1+2) + (1+2+3) + (2+3+4) + (3+4+5) = 3 + 6 + 9 + 12 = 30
+}
+
+/// Test that continue properly cleans up inner scope
+#[vm_protect(level = "debug")]
+fn continue_with_struct_cleanup() -> u64 {
+    struct Point { x: u64, y: u64 }
+
+    let mut sum = 0;
+    for i in 0..5 {
+        if i % 2 == 0 {
+            let p = Point { x: i, y: i };  // Only created for even i
+            sum = sum + p.x;
+            continue;  // Should free 'p' before jumping
+        }
+        sum = sum + 100;  // Add 100 for odd numbers
+    }
+    sum  // i=0: 0, i=1: 100, i=2: 2, i=3: 100, i=4: 4 = 206
+}
+
+/// Test that return properly cleans up all scopes
+#[vm_protect(level = "debug")]
+fn return_with_deep_cleanup() -> u64 {
+    struct Outer { a: u64 }
+    struct Inner { b: u64 }
+
+    let outer = Outer { a: 10 };
+
+    for i in 0..5 {
+        let inner = Inner { b: i };
+
+        if inner.b == 3 {
+            // Return should clean up: inner, then outer
+            return outer.a + inner.b;  // 10 + 3 = 13
+        }
+    }
+
+    outer.a  // Never reached
+}
+
+/// Test nested loops with break and struct
+#[vm_protect(level = "debug")]
+fn nested_break_cleanup() -> u64 {
+    struct Counter { val: u64 }
+
+    let mut total = 0;
+
+    for i in 0..3 {
+        let outer_c = Counter { val: i * 100 };
+
+        for j in 0..5 {
+            let inner_c = Counter { val: j };
+            total = total + inner_c.val;
+
+            if j == 2 {
+                break;  // Should clean up inner_c, NOT outer_c
+            }
+        }
+
+        total = total + outer_c.val;  // outer_c should still be valid
+    }
+
+    // Inner loops: (0+1+2) * 3 = 9
+    // Outer: 0 + 100 + 200 = 300
+    // Total: 309
+    total
+}
+
+/// Test continue in nested loop with cleanup
+#[vm_protect(level = "debug")]
+fn nested_continue_cleanup() -> u64 {
+    struct Val { n: u64 }
+
+    let mut sum = 0;
+
+    for i in 0..3 {
+        let outer_v = Val { n: i };
+
+        for j in 0..4 {
+            if j % 2 == 1 {
+                continue;  // Skip odd j, no struct to clean here
+            }
+            let inner_v = Val { n: j * 10 };
+            sum = sum + inner_v.n;
+        }
+
+        sum = sum + outer_v.n;
+    }
+
+    // Inner: (0 + 20) * 3 = 60
+    // Outer: 0 + 1 + 2 = 3
+    // Total: 63
+    sum
+}
+
+#[test]
+fn test_break_with_struct_cleanup() {
+    assert_eq!(break_with_struct_cleanup(), 15);
+}
+
+#[test]
+fn test_break_with_tuple_cleanup() {
+    assert_eq!(break_with_tuple_cleanup(), 30);
+}
+
+#[test]
+fn test_continue_with_struct_cleanup() {
+    assert_eq!(continue_with_struct_cleanup(), 206);
+}
+
+#[test]
+fn test_return_with_deep_cleanup() {
+    assert_eq!(return_with_deep_cleanup(), 13);
+}
+
+#[test]
+fn test_nested_break_cleanup() {
+    assert_eq!(nested_break_cleanup(), 309);
+}
+
+#[test]
+fn test_nested_continue_cleanup() {
+    assert_eq!(nested_continue_cleanup(), 63);
+}
