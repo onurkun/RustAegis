@@ -40,6 +40,10 @@ pub enum VmError {
     NativeFunctionAlreadyRegistered = 16,
     /// Too many arguments for native call
     NativeTooManyArgs = 17,
+    /// Heap allocation failed (out of memory)
+    HeapOutOfMemory = 18,
+    /// Heap access out of bounds
+    HeapOutOfBounds = 19,
 }
 
 impl VmError {
@@ -64,6 +68,8 @@ impl VmError {
             VmError::NativeFunctionNotFound => "VM_ERR_NATIVE_NOT_FOUND",
             VmError::NativeFunctionAlreadyRegistered => "VM_ERR_NATIVE_ALREADY_REG",
             VmError::NativeTooManyArgs => "VM_ERR_NATIVE_TOO_MANY_ARGS",
+            VmError::HeapOutOfMemory => "VM_ERR_HEAP_OOM",
+            VmError::HeapOutOfBounds => "VM_ERR_HEAP_OOB",
         }
     }
 
