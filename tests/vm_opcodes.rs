@@ -678,12 +678,16 @@ fn test_invalid_opcode() {
 }
 
 #[test]
-fn test_invalid_register() {
+fn test_extended_registers() {
+    // Test that R8-R255 now work (was limited to R0-R7)
+    // MOV R8, 42 then PUSH R8 then HALT
     let code = [
-        register::MOV_IMM, 8, 42, 0, 0, 0, 0, 0, 0, 0,
+        register::MOV_IMM, 8, 42, 0, 0, 0, 0, 0, 0, 0,  // R8 = 42
+        stack::PUSH_REG, 8,                               // push R8
+        exec::HALT,
     ];
     let result = execute(&code, &[]);
-    assert_eq!(result, Err(VmError::InvalidRegister));
+    assert_eq!(result, Ok(42));
 }
 
 #[test]

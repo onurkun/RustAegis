@@ -16,7 +16,12 @@ hmac = { version = "0.12", default-features = false }
 sha2 = { version = "0.10", default-features = false }
 digest = { version = "0.10", default-features = false }
 subtle = { version = "2.5", default-features = false }
-aegis_vm_macro = "0.1.4"
+aegis_vm_macro = { path = "../aegis_vm_macro" }
+
+[build-dependencies]
+hmac = "0.12"
+sha2 = "0.10"
+hex = "0.4"
 
 [dev-dependencies]
 hex = "0.4"

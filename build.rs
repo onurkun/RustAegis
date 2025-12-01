@@ -718,6 +718,18 @@ const BASE_OPCODES: &[(& str, &str, u8)] = &[
     ("memory", "STORE16", 0x65),
     ("memory", "STORE32", 0x66),
     ("memory", "STORE64", 0x67),
+    // Heap operations
+    ("heap", "HEAP_ALLOC", 0x70),
+    ("heap", "HEAP_FREE", 0x71),
+    ("heap", "HEAP_LOAD8", 0x72),
+    ("heap", "HEAP_LOAD16", 0x73),
+    ("heap", "HEAP_LOAD32", 0x74),
+    ("heap", "HEAP_LOAD64", 0x75),
+    ("heap", "HEAP_STORE8", 0x76),
+    ("heap", "HEAP_STORE16", 0x77),
+    ("heap", "HEAP_STORE32", 0x78),
+    ("heap", "HEAP_STORE64", 0x79),
+    ("heap", "HEAP_SIZE", 0x7A),
     // Native calls
     ("native", "NATIVE_CALL", 0xF0),
     ("native", "NATIVE_READ", 0xF1),

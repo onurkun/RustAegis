@@ -3,7 +3,7 @@
 //! Instruction format:
 //! - Most instructions are 1 byte opcode + optional operands
 //! - Immediate values are little-endian
-//! - Register indices are 0-7 (R0-R7)
+//! - Register indices are 0-255 (R0-R255)
 
 /// Stack Operations
 pub mod stack {
@@ -266,6 +266,64 @@ pub mod memory {
     pub const STORE64: u8 = 0x67;
 }
 
+/// Heap Operations (Dynamic Memory)
+pub mod heap {
+    /// Allocate memory on heap
+    /// Stack: [size] -> [address]
+    /// Format: HEAP_ALLOC
+    pub const HEAP_ALLOC: u8 = 0x70;
+
+    /// Free heap memory (no-op for bump allocator, reserved for future)
+    /// Stack: [address] -> []
+    /// Format: HEAP_FREE
+    pub const HEAP_FREE: u8 = 0x71;
+
+    /// Read u8 from heap
+    /// Stack: [address] -> [value]
+    /// Format: HEAP_LOAD8
+    pub const HEAP_LOAD8: u8 = 0x72;
+
+    /// Read u16 from heap (little-endian)
+    /// Stack: [address] -> [value]
+    /// Format: HEAP_LOAD16
+    pub const HEAP_LOAD16: u8 = 0x73;
+
+    /// Read u32 from heap (little-endian)
+    /// Stack: [address] -> [value]
+    /// Format: HEAP_LOAD32
+    pub const HEAP_LOAD32: u8 = 0x74;
+
+    /// Read u64 from heap (little-endian)
+    /// Stack: [address] -> [value]
+    /// Format: HEAP_LOAD64
+    pub const HEAP_LOAD64: u8 = 0x75;
+
+    /// Write u8 to heap
+    /// Stack: [address, value] -> []
+    /// Format: HEAP_STORE8
+    pub const HEAP_STORE8: u8 = 0x76;
+
+    /// Write u16 to heap (little-endian)
+    /// Stack: [address, value] -> []
+    /// Format: HEAP_STORE16
+    pub const HEAP_STORE16: u8 = 0x77;
+
+    /// Write u32 to heap (little-endian)
+    /// Stack: [address, value] -> []
+    /// Format: HEAP_STORE32
+    pub const HEAP_STORE32: u8 = 0x78;
+
+    /// Write u64 to heap (little-endian)
+    /// Stack: [address, value] -> []
+    /// Format: HEAP_STORE64
+    pub const HEAP_STORE64: u8 = 0x79;
+
+    /// Get current heap pointer (bytes used)
+    /// Stack: [] -> [heap_ptr]
+    /// Format: HEAP_SIZE
+    pub const HEAP_SIZE: u8 = 0x7A;
+}
+
 /// Native Calls (Escape to Rust)
 pub mod native {
     /// Call registered native function
@@ -371,6 +429,18 @@ pub fn opcode_name(op: u8) -> &'static str {
         memory::STORE16 => "STORE16",
         memory::STORE32 => "STORE32",
         memory::STORE64 => "STORE64",
+
+        heap::HEAP_ALLOC => "HEAP_ALLOC",
+        heap::HEAP_FREE => "HEAP_FREE",
+        heap::HEAP_LOAD8 => "HEAP_LOAD8",
+        heap::HEAP_LOAD16 => "HEAP_LOAD16",
+        heap::HEAP_LOAD32 => "HEAP_LOAD32",
+        heap::HEAP_LOAD64 => "HEAP_LOAD64",
+        heap::HEAP_STORE8 => "HEAP_STORE8",
+        heap::HEAP_STORE16 => "HEAP_STORE16",
+        heap::HEAP_STORE32 => "HEAP_STORE32",
+        heap::HEAP_STORE64 => "HEAP_STORE64",
+        heap::HEAP_SIZE => "HEAP_SIZE",
 
         native::NATIVE_CALL => "NATIVE_CALL",
         native::NATIVE_READ => "NATIVE_READ",

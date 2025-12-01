@@ -3,7 +3,7 @@
 use crate::error::{VmError, VmResult};
 use crate::native::{NativeRegistry, MAX_NATIVE_ARGS};
 // Use base opcode values for matching after decode
-use crate::opcodes::{arithmetic, control, convert, exec, memory, native, register, special, stack};
+use crate::opcodes::{arithmetic, control, convert, exec, heap, memory, native, register, special, stack};
 use crate::state::{VmState, MAX_INSTRUCTIONS};
 use crate::build_config::OPCODE_DECODE;
 
@@ -133,6 +133,19 @@ fn dispatch(state: &mut VmState, opcode: u8, registry: &NativeRegistry) -> VmRes
         memory::STORE16 => handle_store16(state),
         memory::STORE32 => handle_store32(state),
         memory::STORE64 => handle_store64(state),
+
+        // ========== Heap ==========
+        heap::HEAP_ALLOC => handle_heap_alloc(state),
+        heap::HEAP_FREE => handle_heap_free(state),
+        heap::HEAP_LOAD8 => handle_heap_load8(state),
+        heap::HEAP_LOAD16 => handle_heap_load16(state),
+        heap::HEAP_LOAD32 => handle_heap_load32(state),
+        heap::HEAP_LOAD64 => handle_heap_load64(state),
+        heap::HEAP_STORE8 => handle_heap_store8(state),
+        heap::HEAP_STORE16 => handle_heap_store16(state),
+        heap::HEAP_STORE32 => handle_heap_store32(state),
+        heap::HEAP_STORE64 => handle_heap_store64(state),
+        heap::HEAP_SIZE => handle_heap_size(state),
 
         // ========== Native ==========
         native::NATIVE_CALL => handle_native_call(state, registry),
@@ -791,6 +804,97 @@ fn handle_store64(state: &mut VmState) -> VmResult<()> {
     let offset = state.read_u16()? as usize;
     let value = state.pop()?;
     state.write_output_u64(offset, value)
+}
+
+// ============================================================================
+// Heap Handlers
+// ============================================================================
+
+/// HEAP_ALLOC: Allocate memory on heap
+/// Stack: [size] -> [address]
+fn handle_heap_alloc(state: &mut VmState) -> VmResult<()> {
+    let size = state.pop()? as usize;
+    let addr = state.heap_alloc(size)?;
+    state.push(addr as u64)
+}
+
+/// HEAP_FREE: Free heap memory (no-op for bump allocator)
+/// Stack: [address] -> []
+fn handle_heap_free(state: &mut VmState) -> VmResult<()> {
+    let _addr = state.pop()?;
+    // No-op for bump allocator - reserved for future use
+    Ok(())
+}
+
+/// HEAP_LOAD8: Read u8 from heap
+/// Stack: [address] -> [value]
+fn handle_heap_load8(state: &mut VmState) -> VmResult<()> {
+    let addr = state.pop()? as usize;
+    let value = state.heap_read_u8(addr)? as u64;
+    state.push(value)
+}
+
+/// HEAP_LOAD16: Read u16 from heap (little-endian)
+/// Stack: [address] -> [value]
+fn handle_heap_load16(state: &mut VmState) -> VmResult<()> {
+    let addr = state.pop()? as usize;
+    let value = state.heap_read_u16(addr)? as u64;
+    state.push(value)
+}
+
+/// HEAP_LOAD32: Read u32 from heap (little-endian)
+/// Stack: [address] -> [value]
+fn handle_heap_load32(state: &mut VmState) -> VmResult<()> {
+    let addr = state.pop()? as usize;
+    let value = state.heap_read_u32(addr)? as u64;
+    state.push(value)
+}
+
+/// HEAP_LOAD64: Read u64 from heap (little-endian)
+/// Stack: [address] -> [value]
+fn handle_heap_load64(state: &mut VmState) -> VmResult<()> {
+    let addr = state.pop()? as usize;
+    let value = state.heap_read_u64(addr)?;
+    state.push(value)
+}
+
+/// HEAP_STORE8: Write u8 to heap
+/// Stack: [address, value] -> []
+fn handle_heap_store8(state: &mut VmState) -> VmResult<()> {
+    let value = state.pop()? as u8;
+    let addr = state.pop()? as usize;
+    state.heap_write_u8(addr, value)
+}
+
+/// HEAP_STORE16: Write u16 to heap (little-endian)
+/// Stack: [address, value] -> []
+fn handle_heap_store16(state: &mut VmState) -> VmResult<()> {
+    let value = state.pop()? as u16;
+    let addr = state.pop()? as usize;
+    state.heap_write_u16(addr, value)
+}
+
+/// HEAP_STORE32: Write u32 to heap (little-endian)
+/// Stack: [address, value] -> []
+fn handle_heap_store32(state: &mut VmState) -> VmResult<()> {
+    let value = state.pop()? as u32;
+    let addr = state.pop()? as usize;
+    state.heap_write_u32(addr, value)
+}
+
+/// HEAP_STORE64: Write u64 to heap (little-endian)
+/// Stack: [address, value] -> []
+fn handle_heap_store64(state: &mut VmState) -> VmResult<()> {
+    let value = state.pop()?;
+    let addr = state.pop()? as usize;
+    state.heap_write_u64(addr, value)
+}
+
+/// HEAP_SIZE: Get current heap pointer (bytes used)
+/// Stack: [] -> [heap_ptr]
+fn handle_heap_size(state: &mut VmState) -> VmResult<()> {
+    let size = state.heap_size() as u64;
+    state.push(size)
 }
 
 // ============================================================================
