@@ -27,7 +27,7 @@ Add the following to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-aegis_vm = "0.1.5"
+aegis_vm = "0.1.52"
 ```
 
 ## 🛠️ Usage
@@ -164,7 +164,7 @@ cargo install wasm-pack
 ### Cargo.toml Configuration
 ```toml
 [dependencies]
-aegis_vm = { version = "0.1.5", default-features = false }
+aegis_vm = { version = "0.1.52", default-features = false }
 wasm-bindgen = "0.2"
 ```
 
@@ -205,6 +205,38 @@ wasm-pack test --headless --firefox
 The compiled `.wasm` file will be in `pkg/` directory.
 
 ## 📋 Changelog
+
+### v0.1.52
+
+**Pattern Matching Engine:**
+*   **Full Match Expression Support:** Comprehensive `match` expression compilation with 45 dedicated tests.
+*   **Pattern Types Supported:**
+    *   Literal patterns: `1`, `42`, `"hello"`
+    *   Variable bindings: `n`, `x`
+    *   Wildcard: `_`
+    *   Range patterns: `1..=5`, `1..10`
+    *   Or patterns: `1 | 2 | 3`
+    *   Tuple destructuring: `(a, b, c)`
+    *   Struct destructuring: `Point { x, y }`
+    *   TupleStruct patterns: `Point(x, y)`
+    *   @ bindings: `n @ 1..=5`
+    *   Match guards: `n if n > 0`
+*   **Tagged Union Support:** Option/Result-like enums can be simulated using structs with discriminant fields.
+
+**Memory Management Fix:**
+*   **Early Exit Cleanup:** Fixed critical memory leak where `break`, `continue`, and `return` statements would skip heap cleanup.
+*   **`emit_scope_cleanup()`:** New compiler function that emits `HEAP_FREE` for all heap variables when exiting scopes early.
+*   **`LoopContext.scope_depth`:** Loops now track their scope depth for proper cleanup on `break`/`continue`.
+
+**New Features:**
+*   **Struct Definitions in Functions:** Support for defining structs inside function bodies.
+*   **Tuple Structs:** Full support for tuple struct creation and field access.
+*   **Nested Pattern Matching:** Deep destructuring of nested tuples and structs.
+
+**Improvements:**
+*   600+ tests passing (up from 500+)
+*   6 new memory cleanup tests verifying early exit behavior
+*   45 match expression tests covering all pattern types
 
 ### v0.1.5
 
