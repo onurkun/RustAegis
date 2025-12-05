@@ -6,6 +6,7 @@ build_history.txt
 # WASM build artifacts
 **/pkg/
 **/target/
-
+/.claude
+/.cargo
 # macOS
 .DS_Store
