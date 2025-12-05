@@ -177,6 +177,38 @@ impl<'a> VmState<'a> {
         state
     }
 
+    /// Create VM state with new code reference but preserving execution state
+    /// Used by SMC engine to update code view after decryption
+    pub fn with_code_and_state(code: &'a [u8], input: &'a [u8], old: &VmState) -> Self {
+        Self {
+            // Copy registers
+            regs: old.regs.clone(),
+            // Copy heap state
+            heap: old.heap.clone(),
+            heap_ptr: old.heap_ptr,
+            heap_limit: old.heap_limit,
+            free_list: old.free_list.clone(),
+            // Copy stacks
+            stack: old.stack.clone(),
+            call_stack: old.call_stack.clone(),
+            // Copy execution state
+            ip: old.ip,
+            flags: old.flags,
+            instruction_count: old.instruction_count,
+            halted: old.halted,
+            result: old.result,
+            last_error: old.last_error.clone(),
+            // New code reference
+            code,
+            input,
+            // Copy output
+            output: old.output.clone(),
+            // Copy timing
+            last_timing_ns: old.last_timing_ns,
+            start_time_ns: old.start_time_ns,
+        }
+    }
+
     /// Initialize timing for anti-debug checks
     #[inline]
     pub fn init_timing(&mut self) {
