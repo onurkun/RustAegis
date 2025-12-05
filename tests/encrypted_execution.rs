@@ -201,7 +201,11 @@ fn test_tampered_encrypted_bytecode_fails() {
     assert!(result.is_err());
 }
 
+/// Test that wrong key fails decryption
+/// Note: When whitebox feature is enabled, CryptoContext always uses build-time
+/// derived keys, so this test only applies to non-whitebox mode.
 #[test]
+#[cfg(not(feature = "whitebox"))]
 fn test_wrong_key_fails() {
     let bytecode = [
         stack::PUSH_IMM8, 42,

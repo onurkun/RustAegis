@@ -203,19 +203,18 @@ pub struct CryptoContext {
 impl CryptoContext {
     /// Create new crypto context from build seed
     ///
-    /// Bytecode encryption always uses HMAC-based key derivation for compatibility
-    /// with compile-time encrypted bytecode. When `whitebox` feature is enabled,
-    /// WBC is used for SMC key and other runtime secrets.
+    /// When `whitebox` feature is enabled, bytecode key is derived via WBC
+    /// (matching proc-macro's compile-time encryption). Otherwise falls back to HMAC.
     pub fn new(build_seed: [u8; 32]) -> Self {
-        // Bytecode key is ALWAYS derived via HMAC for backward compatibility
-        // (proc-macro encrypts at compile time using HMAC)
-        let key = derive_key(&build_seed, b"bytecode-encryption");
         let build_id = derive_build_id(&build_seed);
 
         #[cfg(feature = "whitebox")]
         {
-            // Initialize WBC for SMC key and other runtime secrets
+            // Initialize WBC context
             let wbc = crate::whitebox::WhiteboxCryptoContext::new();
+
+            // Bytecode key derived via WBC (matches proc-macro)
+            let key = *wbc.bytecode_key();
 
             Self {
                 key,
@@ -228,6 +227,9 @@ impl CryptoContext {
 
         #[cfg(not(feature = "whitebox"))]
         {
+            // Fallback to HMAC when WBC is disabled
+            let key = derive_key(&build_seed, b"bytecode-encryption");
+
             Self {
                 key,
                 build_seed,
