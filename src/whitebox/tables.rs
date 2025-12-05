@@ -1,5 +1,8 @@
 // White-box AES table structures (Chow et al. scheme)
 
+#[cfg(not(feature = "std"))]
+use alloc::boxed::Box;
+
 use super::{AES_ROUNDS, AES_BLOCK_SIZE};
 
 /// Total size of whitebox tables in bytes (approximate)

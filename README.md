@@ -28,7 +28,7 @@ Add the following to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-aegis_vm = "0.2.0"
+aegis_vm = "0.2.1"
 ```
 
 ## 🛠️ Usage
@@ -193,7 +193,7 @@ cargo install wasm-pack
 ### Cargo.toml Configuration
 ```toml
 [dependencies]
-aegis_vm = { version = "0.2.0", default-features = false }
+aegis_vm = { version = "0.2.1", default-features = false }
 wasm-bindgen = "0.2"
 ```
 
@@ -235,7 +235,7 @@ The compiled `.wasm` file will be in `pkg/` directory.
 
 ## 📋 Changelog
 
-### v0.2.0
+### v0.2.1
 
 **Security Hardening:**
 *   **Indirect Threading Dispatch:** Replaced traditional switch-case dispatcher with function pointer table lookup. This eliminates recognizable VM patterns in binary analysis - dispatcher reduced from ~10KB to ~800 bytes.

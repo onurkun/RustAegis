@@ -52,9 +52,9 @@ impl SmcConfig {
     pub fn from_build_seed(seed: u64) -> Self {
         let mut key = [0u8; 32];
         let mut state = seed;
-        for i in 0..32 {
+        for byte in &mut key {
             state = state.wrapping_mul(0x5DEECE66D).wrapping_add(0xB);
-            key[i] = (state >> 24) as u8;
+            *byte = (state >> 24) as u8;
         }
         Self {
             key,

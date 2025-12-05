@@ -5,6 +5,7 @@ use super::sbox::SHIFT_ROWS;
 use super::AES_BLOCK_SIZE;
 
 /// Encrypt a 16-byte block using whitebox tables
+#[allow(clippy::needless_range_loop)]
 pub fn whitebox_encrypt(block: &mut [u8; AES_BLOCK_SIZE], tables: &WhiteboxTables) {
     let mut state = *block;
 
