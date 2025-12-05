@@ -121,6 +121,7 @@ pub fn generate_tables_lite(key: &[u8; 16], seed: &[u8]) -> WhiteboxTablesLite {
     }
 
     // Last round T-boxes
+    #[allow(clippy::needless_range_loop)]
     for pos in 0..AES_BLOCK_SIZE {
         for x in 0..256 {
             let decoded = encodings.round_output[AES_ROUNDS - 2][pos].decode(x as u8);
@@ -198,6 +199,7 @@ fn generate_mixing_bijections(rng: &mut SeededRng) -> [MixingBijection32; 9] {
         for _ in 0..64 {
             let i = (rng.next_u64() as usize) % 32;
             let j = (rng.next_u64() as usize) % 32;
+            #[allow(clippy::needless_range_loop)]
             if i != j {
                 // Add row j to row i (XOR in GF(2))
                 for k in 0..32 {
@@ -217,6 +219,7 @@ fn generate_mixing_bijections(rng: &mut SeededRng) -> [MixingBijection32; 9] {
 }
 
 /// Generate T-boxes and Ty-boxes with MixColumns
+#[allow(clippy::needless_range_loop)]
 fn generate_tboxes_tyboxes(
     round_keys: &[[u8; 16]; 11],
     encodings: &InternalEncodings,
