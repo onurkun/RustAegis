@@ -47,6 +47,7 @@ pub mod bytecode;
 pub mod crypto;
 pub mod native;
 pub mod integrity;
+pub mod smc;
 
 // Re-exports
 pub use error::{VmError, VmResult};
@@ -56,6 +57,7 @@ pub use bytecode::{BytecodeHeader, BytecodePackage, ProtectionLevel, BuildInfo};
 pub use crypto::CryptoContext;
 pub use native::{NativeRegistry, NativeRegistryBuilder, NativeFunction, standard_ids};
 pub use integrity::{IntegrityTable, IntegrityError, compute_hash, verify_hash};
+pub use smc::{SmcConfig, execute_smc, execute_smc_with_natives, encrypt_bytecode, decrypt_bytecode};
 
 /// Build-time generated configuration
 pub mod build_config {

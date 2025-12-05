@@ -37,3 +37,6 @@ lto = true
 codegen-units = 1
 panic = "abort"
 opt-level = "z"
+
+[patch.crates-io]
+aegis_vm_macro = { path = "../aegis_vm_macro" }
