@@ -1362,7 +1362,7 @@ fn generate_junk_line(rng: &mut [u8; 32], var_idx: usize) -> String {
     match op {
         0 => format!("    let _j{} = JUNK[{}] ^ JUNK[{}];", var_idx, const_idx, const_idx2),
         1 => format!("    let _j{} = JUNK[{}].wrapping_add(JUNK[{}]);", var_idx, const_idx, const_idx2),
-        2 => format!("    let _j{} = JUNK[{}].rotate_left({} as u32);", var_idx, const_idx, (next_rand(rng) % 64) as u32),
+        2 => format!("    let _j{} = JUNK[{}].rotate_left({});", var_idx, const_idx, (next_rand(rng) % 64) as u32),
         _ => format!("    let _j{} = JUNK[{}].wrapping_mul(0x{:x});", var_idx, const_idx, next_rand(rng)),
     }
 }
@@ -1996,11 +1996,11 @@ fn generate_wbc_tables(key: &[u8; 16], seed: &[u8]) -> WbcTables {
     }
 
     // Generate MBL tables
-    for round in 0..9 {
+    for (round, mb) in mixing_bijections.iter().enumerate().take(9) {
         for pos in 0..AES_BLOCK_SIZE {
             for x in 0..256 {
                 let l_encoded = (x as u32) << ((pos % 4) * 8);
-                let unmixed = mixing_bijections[round].apply_inverse(l_encoded);
+                let unmixed = mb.apply_inverse(l_encoded);
 
                 let out_bytes = [
                     unmixed as u8,

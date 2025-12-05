@@ -19,6 +19,8 @@
 use crate::build_config::get_build_seed;
 
 #[cfg(not(feature = "std"))]
+use alloc::boxed::Box;
+#[cfg(not(feature = "std"))]
 use alloc::string::String;
 #[cfg(not(feature = "std"))]
 use alloc::vec::Vec;
@@ -105,7 +107,8 @@ fn derive_key_byte(seed: &[u8; 32], string_id: u64, position: u64) -> u8 {
 /// ```
 #[cfg(feature = "std")]
 pub mod cached {
-    use super::*;
+    #[allow(unused_imports)]
+    use super::{decrypt_string, decrypt_static};
     use std::sync::OnceLock;
     use std::collections::HashMap;
 

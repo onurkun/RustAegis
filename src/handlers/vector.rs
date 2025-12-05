@@ -13,12 +13,6 @@
 //! - [expr.array.repeat]: Repeat form `[0; N]` via VEC_REPEAT
 //! - [expr.array.index.array]: Indexing `arr[i]` via VEC_GET/VEC_SET
 
-#[cfg(not(feature = "std"))]
-extern crate alloc;
-
-#[cfg(not(feature = "std"))]
-use alloc::vec::Vec;
-
 use crate::error::{VmError, VmResult};
 use crate::state::VmState;
 

@@ -197,7 +197,7 @@ impl<'a> VmState<'a> {
             instruction_count: old.instruction_count,
             halted: old.halted,
             result: old.result,
-            last_error: old.last_error.clone(),
+            last_error: old.last_error,
             // New code reference
             code,
             input,

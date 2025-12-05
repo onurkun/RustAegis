@@ -68,10 +68,8 @@ pub fn init_tables_lite() -> WhiteboxTablesLite {
 
     // Extract tbox_last from round 9
     let mut tbox_last = [[0u8; 256]; AES_BLOCK_SIZE];
-    for pos in 0..AES_BLOCK_SIZE {
-        for x in 0..256 {
-            tbox_last[pos][x] = full_tbox[AES_ROUNDS - 1][pos][x];
-        }
+    for (pos, tbox_pos) in tbox_last.iter_mut().enumerate() {
+        tbox_pos.copy_from_slice(&full_tbox[AES_ROUNDS - 1][pos]);
     }
 
     WhiteboxTablesLite {
@@ -241,6 +239,12 @@ pub struct WhiteboxCryptoContext {
     nonce_counter: u64,
 }
 
+impl Default for WhiteboxCryptoContext {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl WhiteboxCryptoContext {
     /// Create new WBC crypto context
     ///
@@ -303,6 +307,7 @@ impl WhiteboxCryptoContext {
     }
 
     /// Derive a custom key for any domain
+    #[allow(deprecated)]
     pub fn derive_custom_key(&self, domain: &[u8]) -> [u8; 32] {
         derive_key_with_tables(domain, &self.tables)
     }
