@@ -27,9 +27,10 @@ hex = "0.4"
 hex = "0.4"
 
 [features]
-default = ["std"]
+default = ["std", "handler_mutation"]
 std = []
 vm_debug = []
+handler_mutation = []
 
 [profile.release]
 strip = true
