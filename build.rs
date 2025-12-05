@@ -1705,9 +1705,11 @@ fn generate_dec_handler(f: &mut File, variant: u64, rng: &mut [u8; 32]) {
 
 /// Generate whitebox crypto configuration
 /// Derives a 16-byte AES key from BUILD_SEED for runtime table generation
+/// IMPORTANT: Domain strings MUST match proc-macro's whitebox/mod.rs exactly!
 fn generate_whitebox_config(f: &mut File, build_seed: &[u8; 32]) {
     // Derive WBC key using HMAC-SHA256
-    let wbc_key = hmac_sha256(build_seed, b"whitebox-aes-v1");
+    // Domain string must match: aegis_vm_macro/src/whitebox/mod.rs::derive_wbc_params()
+    let wbc_key = hmac_sha256(build_seed, b"whitebox-aes-key-v1");
 
     writeln!(f, "// White-box cryptography configuration").unwrap();
     writeln!(f, "// Tables are generated at runtime from this key").unwrap();
@@ -1724,7 +1726,8 @@ fn generate_whitebox_config(f: &mut File, build_seed: &[u8; 32]) {
     writeln!(f, "];").unwrap();
 
     // Also derive a "table generation seed" for deterministic bijection generation
-    let table_seed = hmac_sha256(build_seed, b"whitebox-tables-seed-v1");
+    // Domain string must match: aegis_vm_macro/src/whitebox/mod.rs::derive_wbc_params()
+    let table_seed = hmac_sha256(build_seed, b"whitebox-table-seed-v1");
     writeln!(f).unwrap();
     writeln!(f, "    /// Seed for deterministic table generation (bijections, etc.)").unwrap();
     write!(f, "    pub const WBC_TABLE_SEED: [u8; 32] = [").unwrap();
