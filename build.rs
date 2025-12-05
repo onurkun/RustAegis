@@ -1918,6 +1918,7 @@ struct WbcTables {
 }
 
 /// Generate all WBC tables at build-time
+#[allow(clippy::needless_range_loop)]
 fn generate_wbc_tables(key: &[u8; 16], seed: &[u8]) -> WbcTables {
     let mut rng = BuildRng::new(seed);
     let round_keys = aes_key_expansion(key);

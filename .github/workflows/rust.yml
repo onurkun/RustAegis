@@ -26,7 +26,7 @@ jobs:
       - name: Install wasm target
         run: rustup target add wasm32-unknown-unknown
       - name: Build WASM
-        run: cargo build --target wasm32-unknown-unknown --no-default-features
+        run: cargo build --target wasm32-unknown-unknown --no-default-features --features whitebox_lite
 
     # code quality
     clippy:
