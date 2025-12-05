@@ -28,7 +28,7 @@ Add the following to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-aegis_vm = "0.1.52"
+aegis_vm = "0.2.0"
 ```
 
 ## 🛠️ Usage
@@ -97,9 +97,35 @@ cargo build --release
 
 RustAegis significantly complicates static and dynamic analysis by flattening control flow and obfuscating data flow.
 
+### Indirect Threading Dispatch
+
+The VM uses indirect threading (function pointer table) instead of a traditional switch-case dispatcher. This eliminates recognizable patterns in binary analysis:
+
+**Traditional Switch-Case:**
+```asm
+cmp x8, #0x01      ; Compare opcode
+b.eq handler_push  ; Branch to handler
+cmp x8, #0x02
+b.eq handler_pop
+...
+```
+
+**Indirect Threading (RustAegis):**
+```asm
+ldrb w8, [decode_table, opcode]   ; Decode shuffled opcode
+ldr  x9, [handler_table, x8, lsl#3] ; Load handler pointer
+blr  x9                            ; Indirect call
+```
+
+This approach:
+- Eliminates ~10KB switch-case pattern → ~800 bytes dispatcher
+- No sequential CMP/branch patterns visible in IDA/Ghidra
+- Handler functions distributed across binary
+- Opcode mapping hidden in runtime table lookup
+
 ### Control Flow Flattening
 
-The VM interpreter acts as a massive switch statement (dispatcher). The original control flow (if/else, loops) is flattened into data-driven jumps within the interpreter loop.
+The original control flow (if/else, loops) is flattened into data-driven jumps within the interpreter loop.
 
 **Native CFG:**
 Distinct blocks for `if`, `else`, and `return`, easily readable by decompilers.
@@ -167,7 +193,7 @@ cargo install wasm-pack
 ### Cargo.toml Configuration
 ```toml
 [dependencies]
-aegis_vm = { version = "0.1.52", default-features = false }
+aegis_vm = { version = "0.2.0", default-features = false }
 wasm-bindgen = "0.2"
 ```
 
@@ -208,6 +234,26 @@ wasm-pack test --headless --firefox
 The compiled `.wasm` file will be in `pkg/` directory.
 
 ## 📋 Changelog
+
+### v0.2.0
+
+**Security Hardening:**
+*   **Indirect Threading Dispatch:** Replaced traditional switch-case dispatcher with function pointer table lookup. This eliminates recognizable VM patterns in binary analysis - dispatcher reduced from ~10KB to ~800 bytes.
+*   **String Obfuscation:** All error messages and internal strings are now encrypted at compile-time using `aegis_str!` macro. Strings are decrypted only when accessed at runtime.
+*   **Panic-Free Proc-Macro:** Removed all panic messages from proc-macro that could leak implementation details. Errors now use generic codes (E01-E05).
+*   **Demo String Removal:** Removed 1KB+ demo/documentation strings that exposed WBC implementation details.
+
+**Architecture Improvements:**
+*   **Handler Module Reorganization:** All 87 opcode handlers moved to dedicated `handlers/` directory with category-based modules (stack, arithmetic, control, memory, etc.).
+*   **Unified Handler Type:** All handlers now use `fn(&mut VmState, &NativeRegistry) -> VmResult<()>` signature for consistent dispatch.
+*   **Const Handler Table:** Handler table is `const` (not `static`) for no_std/WASM compatibility.
+
+**Binary Analysis Results:**
+| Metric | Before | After |
+|--------|--------|-------|
+| Dispatcher Size | ~10KB | ~800 bytes |
+| Pattern Visibility | CMP/branch chains | Single indirect call |
+| String Exposure | Plaintext errors | Encrypted at rest |
 
 ### v0.1.52
 

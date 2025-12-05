@@ -230,23 +230,53 @@ fn test_whitebox_table_size_constant() {
 }
 
 #[test]
-fn test_build_config_keys_exist() {
-    // Verify build-time generated keys are accessible
-    use aegis_vm::build_config::whitebox_config::{WBC_KEY, WBC_TABLE_SEED};
+fn test_build_time_embedded_tables() {
+    // Verify that build-time embedded tables are properly reconstructed
+    // NOTE: Keys are NO LONGER available at runtime - this is by design!
+    // The WBC key was used ONLY during build-time table generation.
 
-    // Keys should not be all zeros (extremely unlikely with proper key derivation)
-    assert!(
-        WBC_KEY.iter().any(|&b| b != 0),
-        "WBC_KEY should not be all zeros"
-    );
-    assert!(
-        WBC_TABLE_SEED.iter().any(|&b| b != 0),
-        "WBC_TABLE_SEED should not be all zeros"
-    );
+    use aegis_vm::build_config::whitebox_config::{
+        reconstruct_tbox, reconstruct_tybox, reconstruct_xor_tables,
+        reconstruct_mbl, reconstruct_tbox_last
+    };
 
-    // Keys should be proper length
-    assert_eq!(WBC_KEY.len(), 16, "WBC_KEY should be 16 bytes");
-    assert_eq!(WBC_TABLE_SEED.len(), 32, "WBC_TABLE_SEED should be 32 bytes");
+    // Reconstruct tables from entropy pool + deltas (no key involved!)
+    let tbox = reconstruct_tbox();
+    let tybox = reconstruct_tybox();
+    let xor_tables = reconstruct_xor_tables();
+    let mbl = reconstruct_mbl();
+    let tbox_last = reconstruct_tbox_last();
+
+    // Tables should not be all zeros
+    let tbox_nonzero = tbox.iter()
+        .flat_map(|r| r.iter())
+        .flat_map(|p| p.iter())
+        .any(|&v| v != 0);
+    assert!(tbox_nonzero, "TBox should contain non-zero values");
+
+    let tybox_nonzero = tybox.iter()
+        .flat_map(|r| r.iter())
+        .flat_map(|p| p.iter())
+        .any(|&v| v != 0);
+    assert!(tybox_nonzero, "TyBox should contain non-zero values");
+
+    let xor_nonzero = xor_tables.iter()
+        .flat_map(|r| r.iter())
+        .flat_map(|p| p.iter())
+        .flat_map(|t| t.iter())
+        .any(|&v| v != 0);
+    assert!(xor_nonzero, "XorTables should contain non-zero values");
+
+    let mbl_nonzero = mbl.iter()
+        .flat_map(|r| r.iter())
+        .flat_map(|p| p.iter())
+        .any(|&v| v != 0);
+    assert!(mbl_nonzero, "MBL should contain non-zero values");
+
+    let tbox_last_nonzero = tbox_last.iter()
+        .flat_map(|p| p.iter())
+        .any(|&v| v != 0);
+    assert!(tbox_last_nonzero, "tbox_last should contain non-zero values");
 }
 
 #[test]

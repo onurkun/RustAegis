@@ -21,6 +21,7 @@ pub const SBOX: [u8; 256] = [
 ];
 
 /// Inverse AES S-box (InvSubBytes transformation)
+#[allow(dead_code)] // Reserved for WBC decryption support
 pub const INV_SBOX: [u8; 256] = [
     0x52, 0x09, 0x6a, 0xd5, 0x30, 0x36, 0xa5, 0x38, 0xbf, 0x40, 0xa3, 0x9e, 0x81, 0xf3, 0xd7, 0xfb,
     0x7c, 0xe3, 0x39, 0x82, 0x9b, 0x2f, 0xff, 0x87, 0x34, 0x8e, 0x43, 0x44, 0xc4, 0xde, 0xe9, 0xcb,
@@ -67,6 +68,7 @@ pub fn gf_mul(a: u8, b: u8) -> u8 {
 }
 
 /// Multiply by 2 in GF(2^8) - xtime operation
+#[allow(dead_code)] // Used by mul3, reserved for future use
 #[inline]
 pub fn xtime(a: u8) -> u8 {
     if a & 0x80 != 0 {
@@ -77,6 +79,7 @@ pub fn xtime(a: u8) -> u8 {
 }
 
 /// Multiply by 3 in GF(2^8)
+#[allow(dead_code)] // Reserved for lite variant
 #[inline]
 pub fn mul3(a: u8) -> u8 {
     xtime(a) ^ a
@@ -117,6 +120,7 @@ pub const SHIFT_ROWS: [usize; 16] = [
 ];
 
 /// Inverse ShiftRows transformation indices
+#[allow(dead_code)] // Reserved for WBC decryption support
 pub const INV_SHIFT_ROWS: [usize; 16] = [
     0, 13, 10, 7, 4, 1, 14, 11, 8, 5, 2, 15, 12, 9, 6, 3
 ];
@@ -130,6 +134,7 @@ pub const MIX_COLS: [[u8; 4]; 4] = [
 ];
 
 /// InvMixColumns matrix coefficients
+#[allow(dead_code)] // Reserved for WBC decryption support
 pub const INV_MIX_COLS: [[u8; 4]; 4] = [
     [0x0e, 0x0b, 0x0d, 0x09],
     [0x09, 0x0e, 0x0b, 0x0d],

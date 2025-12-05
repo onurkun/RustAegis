@@ -32,11 +32,22 @@
 
 #![cfg_attr(not(feature = "std"), no_std)]
 
+// CRITICAL: Whitebox feature is required for encrypted bytecode execution
+// The proc-macro encrypts bytecode using WBC-derived keys at compile time.
+// Without this feature, the runtime cannot derive the same keys to decrypt.
+#[cfg(not(any(feature = "whitebox", feature = "whitebox_lite")))]
+compile_error!(
+    "Aegis VM: 'whitebox' or 'whitebox_lite' feature is required for encrypted bytecode execution! \
+     Add `features = [\"whitebox\"]` to your aegis_vm dependency in Cargo.toml."
+);
+
 #[cfg(not(feature = "std"))]
 extern crate alloc;
 
-// Re-export the proc-macro for easier usage
+// Re-export the proc-macros for easier usage
 pub use aegis_vm_macro::vm_protect;
+pub use aegis_vm_macro::obfuscate_strings;
+pub use aegis_vm_macro::aegis_str;
 
 pub mod error;
 pub mod opcodes;
@@ -48,6 +59,7 @@ pub mod crypto;
 pub mod native;
 pub mod integrity;
 pub mod smc;
+pub mod string_obfuscation;
 
 // White-box cryptography module (required for encrypted bytecode)
 // The proc-macro uses WBC for key derivation, runtime must match.

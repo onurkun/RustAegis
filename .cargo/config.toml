@@ -1,0 +1,6 @@
+[build]
+rustflags = [
+    "--remap-path-prefix", "src/=aegis/",
+    "-C", "link-arg=-s",
+    "-C", "debuginfo=0"
+]
