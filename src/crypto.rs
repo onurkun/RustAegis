@@ -195,20 +195,72 @@ pub struct CryptoContext {
     nonce_counter: u64,
     /// Build ID derived from seed
     pub build_id: u64,
+    /// WBC crypto context (when whitebox feature is enabled)
+    #[cfg(feature = "whitebox")]
+    wbc_context: Option<crate::whitebox::WhiteboxCryptoContext>,
 }
 
 impl CryptoContext {
     /// Create new crypto context from build seed
+    ///
+    /// Bytecode encryption always uses HMAC-based key derivation for compatibility
+    /// with compile-time encrypted bytecode. When `whitebox` feature is enabled,
+    /// WBC is used for SMC key and other runtime secrets.
     pub fn new(build_seed: [u8; 32]) -> Self {
+        // Bytecode key is ALWAYS derived via HMAC for backward compatibility
+        // (proc-macro encrypts at compile time using HMAC)
         let key = derive_key(&build_seed, b"bytecode-encryption");
         let build_id = derive_build_id(&build_seed);
 
-        Self {
-            key,
-            build_seed,
-            nonce_counter: 0,
-            build_id,
+        #[cfg(feature = "whitebox")]
+        {
+            // Initialize WBC for SMC key and other runtime secrets
+            let wbc = crate::whitebox::WhiteboxCryptoContext::new();
+
+            Self {
+                key,
+                build_seed,
+                nonce_counter: 0,
+                build_id,
+                wbc_context: Some(wbc),
+            }
         }
+
+        #[cfg(not(feature = "whitebox"))]
+        {
+            Self {
+                key,
+                build_seed,
+                nonce_counter: 0,
+                build_id,
+            }
+        }
+    }
+
+    /// Create new crypto context with WBC explicitly enabled
+    #[cfg(feature = "whitebox")]
+    pub fn new_with_wbc() -> Self {
+        let build_seed = crate::build_config::get_build_seed();
+        Self::new(build_seed)
+    }
+
+    /// Get the SMC key (derived from WBC when enabled)
+    ///
+    /// This is where WBC provides protection - the SMC key derivation
+    /// is hidden inside whitebox tables, making key extraction much harder.
+    #[cfg(feature = "whitebox")]
+    pub fn smc_key(&self) -> [u8; KEY_SIZE] {
+        if let Some(ref wbc) = self.wbc_context {
+            *wbc.smc_key()
+        } else {
+            derive_key(&self.build_seed, b"smc-encryption")
+        }
+    }
+
+    /// Get the SMC key (standard derivation when WBC disabled)
+    #[cfg(not(feature = "whitebox"))]
+    pub fn smc_key(&self) -> [u8; KEY_SIZE] {
+        derive_key(&self.build_seed, b"smc-encryption")
     }
 
     /// Encrypt bytecode and return package data
@@ -223,5 +275,29 @@ impl CryptoContext {
     /// Decrypt bytecode
     pub fn decrypt(&self, ciphertext: &[u8], nonce: &[u8; NONCE_SIZE], tag: &[u8; TAG_SIZE]) -> VmResult<Vec<u8>> {
         decrypt_bytecode(&self.key, nonce, ciphertext, tag)
+    }
+
+    /// Derive a WBC-protected key for runtime secrets
+    ///
+    /// When WBC is enabled, this uses whitebox tables for key derivation.
+    /// Use this for runtime secrets (not bytecode which needs compile-time compatibility).
+    #[cfg(feature = "whitebox")]
+    pub fn derive_wbc_key(&self, domain: &[u8]) -> [u8; KEY_SIZE] {
+        if let Some(ref wbc) = self.wbc_context {
+            wbc.derive_custom_key(domain)
+        } else {
+            derive_key(&self.build_seed, domain)
+        }
+    }
+
+    /// Derive a custom key for a specific purpose (HMAC-based)
+    pub fn derive_custom_key(&self, domain: &[u8]) -> [u8; KEY_SIZE] {
+        derive_key(&self.build_seed, domain)
+    }
+
+    /// Get access to WBC context for advanced usage
+    #[cfg(feature = "whitebox")]
+    pub fn wbc(&self) -> Option<&crate::whitebox::WhiteboxCryptoContext> {
+        self.wbc_context.as_ref()
     }
 }

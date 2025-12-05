@@ -49,6 +49,10 @@ pub mod native;
 pub mod integrity;
 pub mod smc;
 
+// White-box cryptography (opt-in feature)
+#[cfg(any(feature = "whitebox", feature = "whitebox_lite"))]
+pub mod whitebox;
+
 // Re-exports
 pub use error::{VmError, VmResult};
 pub use state::VmState;

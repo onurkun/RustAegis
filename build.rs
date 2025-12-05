@@ -219,6 +219,9 @@ fn main() {
     let mutated_handlers_path = Path::new(&out_dir).join("mutated_handlers.rs");
     generate_mutated_handlers(&build_seed, &mutated_handlers_path);
 
+    // Generate whitebox crypto key (if feature enabled)
+    generate_whitebox_config(&mut f, &build_seed);
+
     // Write build history for debugging
     write_build_history(
         &build_seed, build_id, timestamp, &customer_id, &opcode_table,
@@ -1692,6 +1695,45 @@ fn generate_dec_handler(f: &mut File, variant: u64, rng: &mut [u8; 32]) {
 
     writeln!(f, "    state.set_zero_flag(result);").unwrap();
     writeln!(f, "    state.push(result)").unwrap();
+    writeln!(f, "}}").unwrap();
+    writeln!(f).unwrap();
+}
+
+// ============================================================================
+// WHITE-BOX CRYPTO CONFIG - Build-time key derivation for WBC tables
+// ============================================================================
+
+/// Generate whitebox crypto configuration
+/// Derives a 16-byte AES key from BUILD_SEED for runtime table generation
+fn generate_whitebox_config(f: &mut File, build_seed: &[u8; 32]) {
+    // Derive WBC key using HMAC-SHA256
+    let wbc_key = hmac_sha256(build_seed, b"whitebox-aes-v1");
+
+    writeln!(f, "// White-box cryptography configuration").unwrap();
+    writeln!(f, "// Tables are generated at runtime from this key").unwrap();
+    writeln!(f, "pub mod whitebox_config {{").unwrap();
+
+    // Write the 16-byte AES key (first 16 bytes of HMAC output)
+    writeln!(f, "    /// Derived AES-128 key for whitebox table generation").unwrap();
+    writeln!(f, "    /// DO NOT expose this key - it's embedded for obfuscation").unwrap();
+    write!(f, "    pub const WBC_KEY: [u8; 16] = [").unwrap();
+    for (i, byte) in wbc_key[..16].iter().enumerate() {
+        if i > 0 { write!(f, ", ").unwrap(); }
+        write!(f, "0x{:02x}", byte).unwrap();
+    }
+    writeln!(f, "];").unwrap();
+
+    // Also derive a "table generation seed" for deterministic bijection generation
+    let table_seed = hmac_sha256(build_seed, b"whitebox-tables-seed-v1");
+    writeln!(f).unwrap();
+    writeln!(f, "    /// Seed for deterministic table generation (bijections, etc.)").unwrap();
+    write!(f, "    pub const WBC_TABLE_SEED: [u8; 32] = [").unwrap();
+    for (i, byte) in table_seed.iter().enumerate() {
+        if i > 0 { write!(f, ", ").unwrap(); }
+        write!(f, "0x{:02x}", byte).unwrap();
+    }
+    writeln!(f, "];").unwrap();
+
     writeln!(f, "}}").unwrap();
     writeln!(f).unwrap();
 }

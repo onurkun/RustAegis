@@ -31,6 +31,10 @@ default = ["std", "handler_mutation"]
 std = []
 vm_debug = []
 handler_mutation = []
+# White-box cryptography (opt-in, adds ~500KB to binary)
+whitebox = []
+# Lightweight WBC variant (~50KB, T-boxes only)
+whitebox_lite = []
 
 [profile.release]
 strip = true
