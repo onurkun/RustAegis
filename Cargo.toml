@@ -44,6 +44,3 @@ lto = "fat"       # En agresif link-time optimization
 codegen-units = 1 # Paralel derlemeyi kapat, boyutu küçült
 panic = "abort"   # Panic kodlarını at
 opt-level = "z"   # Boyut odaklı optimizasyon ("s" yerine "z" daha agresif)
-
-[patch.crates-io]
-aegis_vm_macro = { path = "../aegis_vm_macro" }
