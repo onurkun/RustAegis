@@ -17,6 +17,7 @@ RustAegis is a research-grade software protection system that compiles Rust code
 *   **Polymorphism:** The instruction set mapping (Opcode Table) is randomized for every build via a `.build_seed` artifact.
 *   **Mixed Boolean-Arithmetic (MBA):** Transforms simple arithmetic (`+`, `-`, `^`) into complex, mathematically equivalent boolean expressions.
 *   **Compile-Time Encryption:** Bytecode is encrypted with a unique key per build and decrypted only at runtime.
+*   **White-Box Cryptography (WBC):** AES key derivation uses Chow et al. (2002) scheme - keys are never exposed in memory.
 *   **Anti-Tamper:** Integrated integrity checks ensure the bytecode has not been modified.
 *   **Junk Code Injection:** Inserts dead code and entropy-based instructions to break signature scanning.
 *   **WASM Support:** Full WebAssembly compatibility for browser and Node.js environments.
@@ -136,11 +137,13 @@ Check the `examples/` directory for complete test cases:
 *   `02_control_flow.rs`: Demonstrates if/else logic protection.
 *   `03_loops.rs`: Demonstrates loop virtualization.
 *   `04_wasm.rs`: Demonstrates WASM integration.
+*   `05_whitebox_crypto.rs`: Demonstrates White-Box Cryptography key protection.
 *   `wasm_test/`: Complete WASM test project with `wasm-pack`.
 
 Run them with:
 ```bash
 cargo run --example 01_arithmetic
+cargo run --example 05_whitebox_crypto
 cargo run --example 04_wasm
 
 # For WASM tests
