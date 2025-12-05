@@ -49,7 +49,8 @@ pub mod native;
 pub mod integrity;
 pub mod smc;
 
-// White-box cryptography (opt-in feature)
+// White-box cryptography module (required for encrypted bytecode)
+// The proc-macro uses WBC for key derivation, runtime must match.
 #[cfg(any(feature = "whitebox", feature = "whitebox_lite"))]
 pub mod whitebox;
 

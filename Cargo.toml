@@ -27,13 +27,15 @@ hex = "0.4"
 hex = "0.4"
 
 [features]
-default = ["std", "handler_mutation"]
+default = ["std", "handler_mutation", "whitebox"]
 std = []
 vm_debug = []
 handler_mutation = []
-# White-box cryptography (opt-in, adds ~500KB to binary)
+# White-box cryptography - REQUIRED for encrypted bytecode
+# The proc-macro uses WBC for key derivation, runtime must match.
+# This is now default because encrypted execution won't work without it.
 whitebox = []
-# Lightweight WBC variant (~50KB, T-boxes only)
+# Lightweight WBC variant (~50KB, T-boxes only) - alternative to full whitebox
 whitebox_lite = []
 
 [profile.release]

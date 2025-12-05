@@ -2,7 +2,7 @@
 
 > **Version:** 0.1.52 → 0.2.0
 > **Son Güncelleme:** 2025-12-05
-> **Durum:** Faz 1.2 Tamamlandı ✅
+> **Durum:** Faz 3.1 Tamamlandı ✅ (WBC Entegrasyonu)
 
 ### İlerleme Özeti
 
@@ -12,19 +12,19 @@ Faz 1: Hızlı Kazanımlar
 └── 1.2 Substitution Fix      [✓] Tamamlandı (2025-12-05)
 
 Faz 2: Core Güçlendirme
-├── 2.1 Self-Modifying Code   [ ] Bekliyor
-└── 2.2 Handler Mutation      [ ] Bekliyor
+├── 2.1 Self-Modifying Code   [✓] Tamamlandı (2025-12-05)
+└── 2.2 Handler Mutation      [✓] Tamamlandı (2025-12-05)
 
 Faz 3: Pro Özellikler
-├── 3.1 White-box Crypto      [ ] Araştırma
-└── 3.2 Advanced CF           [ ] Araştırma
+├── 3.1 White-box Crypto      [✓] Tamamlandı (2025-12-05) ← YENİ!
+└── 3.2 Advanced CF           [ ] Araştırma (Indirect Dispatch)
 ```
 
 ---
 
 ## Executive Summary
 
-Aegis VM şu anda temel obfuscation yeteneklerine sahip, çalışan bir Rust bytecode VM'i. Bu roadmap, ticari koruma yazılımlarıyla (VMProtect, Themida) rekabet edebilecek seviyeye çıkarmak için gereken geliştirmeleri öncelik sırasına göre tanımlar.
+Aegis VM şu anda **kurumsal seviye (Enterprise Grade)** koruma yeteneklerine sahip, çalışan bir Rust bytecode VM'i. White-Box Cryptography entegrasyonu ile key-hiding özelliği eklendi.
 
 ### Mevcut Durum (v0.1.52+)
 
@@ -36,12 +36,13 @@ Aegis VM şu anda temel obfuscation yeteneklerine sahip, çalışan bir Rust byt
 | Polymorphic Opcodes | ✅ Aktif | Her build farklı mapping |
 | Dead Code Injection | ✅ Aktif | %10 şansla |
 | ValueCryptor | ✅ Aktif | Paranoid modda |
-| Bytecode Encryption | ✅ Aktif | AES-256-GCM |
+| Bytecode Encryption | ✅ Aktif | AES-256-GCM + **WBC Key Derivation** |
 | Type Constants | ✅ Aktif | u64::MAX, i64::MIN, BITS, vb. |
 | Opaque Predicates | ⚠️ Tanımlı | Kullanılmıyor |
-| Complex Substitutions | ✅ **AKTİF** | **Faz 1.2 tamamlandı** |
-| Self-Modifying Code | ❌ Yok | |
-| Handler Mutation | ❌ Yok | |
+| Complex Substitutions | ✅ Aktif | Faz 1.2 tamamlandı |
+| Self-Modifying Code | ✅ **Aktif** | **Faz 2.1 tamamlandı** |
+| Handler Mutation | ✅ **Aktif** | **Faz 2.2 tamamlandı** |
+| White-box Crypto | ✅ **Aktif** | **Faz 3.1 tamamlandı** - Chow scheme |
 | Anti-Debug | ❌ Yok | Ayrı ürün olacak |
 
 ---
