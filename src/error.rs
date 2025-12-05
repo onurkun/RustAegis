@@ -1,7 +1,15 @@
 //! VM Error types
+//!
+//! Error strings are obfuscated at compile time to prevent binary analysis.
+
+use aegis_vm_macro::aegis_str_internal;
+use core::fmt;
 
 /// VM execution errors
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+///
+/// Note: Debug impl only shows error code (E00-E20) to prevent string leakage.
+/// Use `as_str()` for human-readable messages (decrypted at runtime).
+#[derive(Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]
 pub enum VmError {
     /// No error
@@ -48,31 +56,47 @@ pub enum VmError {
     DoubleFree = 20,
 }
 
+// Manual Debug impl - only shows error code, no string leakage
+impl fmt::Debug for VmError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "E{:02}", self.code())
+    }
+}
+
+// Display impl uses obfuscated strings
+impl fmt::Display for VmError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.as_str())
+    }
+}
+
 impl VmError {
-    /// Get error code string for debugging
-    pub const fn as_str(&self) -> &'static str {
+    /// Get error code string for debugging (obfuscated)
+    ///
+    /// Strings are encrypted at compile time and decrypted on first access.
+    pub fn as_str(&self) -> &'static str {
         match self {
-            VmError::Ok => "VM_OK",
-            VmError::InvalidOpcode => "VM_ERR_INVALID_OPCODE",
-            VmError::StackUnderflow => "VM_ERR_STACK_UNDERFLOW",
-            VmError::StackOverflow => "VM_ERR_STACK_OVERFLOW",
-            VmError::InvalidRegister => "VM_ERR_INVALID_REGISTER",
-            VmError::DivisionByZero => "VM_ERR_DIVISION_BY_ZERO",
-            VmError::InvalidJumpTarget => "VM_ERR_INVALID_JUMP_TARGET",
-            VmError::IntegrityFailed => "VM_ERR_INTEGRITY_FAILED",
-            VmError::TimingAnomaly => "VM_ERR_TIMING_ANOMALY",
-            VmError::StateCorrupt => "VM_ERR_STATE_CORRUPT",
-            VmError::NativeCallFailed => "VM_ERR_NATIVE_CALL_FAILED",
-            VmError::DecryptionFailed => "VM_ERR_DECRYPTION_FAILED",
-            VmError::MaxInstructionsExceeded => "VM_ERR_MAX_INSTRUCTIONS",
-            VmError::InvalidBytecode => "VM_ERR_INVALID_BYTECODE",
-            VmError::MemoryOutOfBounds => "VM_ERR_MEMORY_OOB",
-            VmError::NativeFunctionNotFound => "VM_ERR_NATIVE_NOT_FOUND",
-            VmError::NativeFunctionAlreadyRegistered => "VM_ERR_NATIVE_ALREADY_REG",
-            VmError::NativeTooManyArgs => "VM_ERR_NATIVE_TOO_MANY_ARGS",
-            VmError::HeapOutOfMemory => "VM_ERR_HEAP_OOM",
-            VmError::HeapOutOfBounds => "VM_ERR_HEAP_OOB",
-            VmError::DoubleFree => "VM_ERR_DOUBLE_FREE",
+            VmError::Ok => aegis_str_internal!("VM_OK"),
+            VmError::InvalidOpcode => aegis_str_internal!("VM_ERR_INVALID_OPCODE"),
+            VmError::StackUnderflow => aegis_str_internal!("VM_ERR_STACK_UNDERFLOW"),
+            VmError::StackOverflow => aegis_str_internal!("VM_ERR_STACK_OVERFLOW"),
+            VmError::InvalidRegister => aegis_str_internal!("VM_ERR_INVALID_REGISTER"),
+            VmError::DivisionByZero => aegis_str_internal!("VM_ERR_DIVISION_BY_ZERO"),
+            VmError::InvalidJumpTarget => aegis_str_internal!("VM_ERR_INVALID_JUMP_TARGET"),
+            VmError::IntegrityFailed => aegis_str_internal!("VM_ERR_INTEGRITY_FAILED"),
+            VmError::TimingAnomaly => aegis_str_internal!("VM_ERR_TIMING_ANOMALY"),
+            VmError::StateCorrupt => aegis_str_internal!("VM_ERR_STATE_CORRUPT"),
+            VmError::NativeCallFailed => aegis_str_internal!("VM_ERR_NATIVE_CALL_FAILED"),
+            VmError::DecryptionFailed => aegis_str_internal!("VM_ERR_DECRYPTION_FAILED"),
+            VmError::MaxInstructionsExceeded => aegis_str_internal!("VM_ERR_MAX_INSTRUCTIONS"),
+            VmError::InvalidBytecode => aegis_str_internal!("VM_ERR_INVALID_BYTECODE"),
+            VmError::MemoryOutOfBounds => aegis_str_internal!("VM_ERR_MEMORY_OOB"),
+            VmError::NativeFunctionNotFound => aegis_str_internal!("VM_ERR_NATIVE_NOT_FOUND"),
+            VmError::NativeFunctionAlreadyRegistered => aegis_str_internal!("VM_ERR_NATIVE_ALREADY_REG"),
+            VmError::NativeTooManyArgs => aegis_str_internal!("VM_ERR_NATIVE_TOO_MANY_ARGS"),
+            VmError::HeapOutOfMemory => aegis_str_internal!("VM_ERR_HEAP_OOM"),
+            VmError::HeapOutOfBounds => aegis_str_internal!("VM_ERR_HEAP_OOB"),
+            VmError::DoubleFree => aegis_str_internal!("VM_ERR_DOUBLE_FREE"),
         }
     }
 

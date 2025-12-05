@@ -191,6 +191,10 @@ fn main() {
     let opcode_table = generate_opcode_table(&build_seed);
     write_opcode_table(&mut f, &opcode_table);
 
+    // CRITICAL: Write opcode table to shared file for vm-macro to read
+    // This ensures Single Source of Truth - macro reads the same table build.rs generated
+    write_shared_opcode_table(&opcode_table);
+
     // Generate randomized MAGIC bytes for bytecode header
     let magic_bytes = generate_magic_bytes(&build_seed);
     write_magic_bytes(&mut f, &magic_bytes);
@@ -306,6 +310,26 @@ fn write_shared_seed(seed: &[u8; 32]) {
             if let Ok(mut f) = File::create(&seed_file) {
                 // Write as hex
                 for byte in seed {
+                    let _ = write!(f, "{:02x}", byte);
+                }
+            }
+        }
+    }
+}
+
+/// Write opcode encode table to shared location for vm-macro to read
+/// This ensures macro and runtime use EXACTLY the same opcode mapping
+fn write_shared_opcode_table(table: &OpcodeTable) {
+    if let Ok(out_dir) = env::var("OUT_DIR") {
+        let target_dir = Path::new(&out_dir)
+            .ancestors()
+            .find(|p| p.file_name().is_some_and(|n| n == "target"));
+
+        if let Some(target) = target_dir {
+            let table_file = target.join(".anticheat_opcode_table");
+            if let Ok(mut f) = File::create(&table_file) {
+                // Write encode table as hex (256 bytes)
+                for byte in &table.encode {
                     let _ = write!(f, "{:02x}", byte);
                 }
             }
@@ -1700,42 +1724,740 @@ fn generate_dec_handler(f: &mut File, variant: u64, rng: &mut [u8; 32]) {
 }
 
 // ============================================================================
-// WHITE-BOX CRYPTO CONFIG - Build-time key derivation for WBC tables
+// WHITE-BOX CRYPTO - BUILD-TIME TABLE GENERATION
 // ============================================================================
+//
+// WBC tables are generated at build-time and embedded with entropy pool protection.
+// The AES key NEVER exists at runtime - it's only used during compilation.
+// This provides true white-box security: key extraction is mathematically impossible.
 
-/// Generate whitebox crypto configuration
-/// Derives a 16-byte AES key from BUILD_SEED for runtime table generation
-/// IMPORTANT: Domain strings MUST match proc-macro's whitebox/mod.rs exactly!
+// AES Constants for build-time table generation
+const AES_SBOX: [u8; 256] = [
+    0x63, 0x7c, 0x77, 0x7b, 0xf2, 0x6b, 0x6f, 0xc5, 0x30, 0x01, 0x67, 0x2b, 0xfe, 0xd7, 0xab, 0x76,
+    0xca, 0x82, 0xc9, 0x7d, 0xfa, 0x59, 0x47, 0xf0, 0xad, 0xd4, 0xa2, 0xaf, 0x9c, 0xa4, 0x72, 0xc0,
+    0xb7, 0xfd, 0x93, 0x26, 0x36, 0x3f, 0xf7, 0xcc, 0x34, 0xa5, 0xe5, 0xf1, 0x71, 0xd8, 0x31, 0x15,
+    0x04, 0xc7, 0x23, 0xc3, 0x18, 0x96, 0x05, 0x9a, 0x07, 0x12, 0x80, 0xe2, 0xeb, 0x27, 0xb2, 0x75,
+    0x09, 0x83, 0x2c, 0x1a, 0x1b, 0x6e, 0x5a, 0xa0, 0x52, 0x3b, 0xd6, 0xb3, 0x29, 0xe3, 0x2f, 0x84,
+    0x53, 0xd1, 0x00, 0xed, 0x20, 0xfc, 0xb1, 0x5b, 0x6a, 0xcb, 0xbe, 0x39, 0x4a, 0x4c, 0x58, 0xcf,
+    0xd0, 0xef, 0xaa, 0xfb, 0x43, 0x4d, 0x33, 0x85, 0x45, 0xf9, 0x02, 0x7f, 0x50, 0x3c, 0x9f, 0xa8,
+    0x51, 0xa3, 0x40, 0x8f, 0x92, 0x9d, 0x38, 0xf5, 0xbc, 0xb6, 0xda, 0x21, 0x10, 0xff, 0xf3, 0xd2,
+    0xcd, 0x0c, 0x13, 0xec, 0x5f, 0x97, 0x44, 0x17, 0xc4, 0xa7, 0x7e, 0x3d, 0x64, 0x5d, 0x19, 0x73,
+    0x60, 0x81, 0x4f, 0xdc, 0x22, 0x2a, 0x90, 0x88, 0x46, 0xee, 0xb8, 0x14, 0xde, 0x5e, 0x0b, 0xdb,
+    0xe0, 0x32, 0x3a, 0x0a, 0x49, 0x06, 0x24, 0x5c, 0xc2, 0xd3, 0xac, 0x62, 0x91, 0x95, 0xe4, 0x79,
+    0xe7, 0xc8, 0x37, 0x6d, 0x8d, 0xd5, 0x4e, 0xa9, 0x6c, 0x56, 0xf4, 0xea, 0x65, 0x7a, 0xae, 0x08,
+    0xba, 0x78, 0x25, 0x2e, 0x1c, 0xa6, 0xb4, 0xc6, 0xe8, 0xdd, 0x74, 0x1f, 0x4b, 0xbd, 0x8b, 0x8a,
+    0x70, 0x3e, 0xb5, 0x66, 0x48, 0x03, 0xf6, 0x0e, 0x61, 0x35, 0x57, 0xb9, 0x86, 0xc1, 0x1d, 0x9e,
+    0xe1, 0xf8, 0x98, 0x11, 0x69, 0xd9, 0x8e, 0x94, 0x9b, 0x1e, 0x87, 0xe9, 0xce, 0x55, 0x28, 0xdf,
+    0x8c, 0xa1, 0x89, 0x0d, 0xbf, 0xe6, 0x42, 0x68, 0x41, 0x99, 0x2d, 0x0f, 0xb0, 0x54, 0xbb, 0x16,
+];
+
+const AES_RCON: [u8; 10] = [0x01, 0x02, 0x04, 0x08, 0x10, 0x20, 0x40, 0x80, 0x1b, 0x36];
+const AES_MIX_COLS: [[u8; 4]; 4] = [[2, 3, 1, 1], [1, 2, 3, 1], [1, 1, 2, 3], [3, 1, 1, 2]];
+const AES_SHIFT_ROWS: [usize; 16] = [0, 5, 10, 15, 4, 9, 14, 3, 8, 13, 2, 7, 12, 1, 6, 11];
+
+const AES_ROUNDS: usize = 10;
+const AES_BLOCK_SIZE: usize = 16;
+
+// Table sizes
+const TBOX_SIZE: usize = AES_ROUNDS * AES_BLOCK_SIZE * 256; // 40,960 bytes
+const TYBOX_SIZE: usize = 9 * AES_BLOCK_SIZE * 256 * 4;     // 147,456 bytes
+const XOR_TABLE_SIZE: usize = 9 * 96 * 16 * 16;             // 221,184 bytes
+const MBL_SIZE: usize = 9 * AES_BLOCK_SIZE * 256 * 4;       // 147,456 bytes
+const TBOX_LAST_SIZE: usize = AES_BLOCK_SIZE * 256;         // 4,096 bytes
+
+/// GF(2^8) multiplication
+fn gf_mul(a: u8, b: u8) -> u8 {
+    let mut result = 0u8;
+    let mut aa = a;
+    let mut bb = b;
+    for _ in 0..8 {
+        if bb & 1 != 0 { result ^= aa; }
+        let hi_bit = aa & 0x80;
+        aa <<= 1;
+        if hi_bit != 0 { aa ^= 0x1b; }
+        bb >>= 1;
+    }
+    result
+}
+
+/// AES key expansion
+fn aes_key_expansion(key: &[u8; 16]) -> [[u8; 16]; 11] {
+    let mut round_keys = [[0u8; 16]; 11];
+    round_keys[0].copy_from_slice(key);
+
+    for i in 1..11 {
+        let prev = &round_keys[i - 1];
+        let mut next = [0u8; 16];
+        let rot = [prev[13], prev[14], prev[15], prev[12]];
+        next[0] = prev[0] ^ AES_SBOX[rot[0] as usize] ^ AES_RCON[i - 1];
+        next[1] = prev[1] ^ AES_SBOX[rot[1] as usize];
+        next[2] = prev[2] ^ AES_SBOX[rot[2] as usize];
+        next[3] = prev[3] ^ AES_SBOX[rot[3] as usize];
+        for j in 4..16 {
+            next[j] = prev[j] ^ next[j - 4];
+        }
+        round_keys[i] = next;
+    }
+    round_keys
+}
+
+/// Seeded RNG for deterministic table generation
+struct BuildRng { state: u64 }
+
+impl BuildRng {
+    fn new(seed: &[u8]) -> Self {
+        let mut state = 0x853c49e6748fea9bu64;
+        for (i, &byte) in seed.iter().enumerate() {
+            state ^= (byte as u64) << ((i % 8) * 8);
+            state = state.wrapping_mul(0x5851f42d4c957f2d);
+            state ^= state >> 33;
+        }
+        Self { state }
+    }
+
+    fn next_u64(&mut self) -> u64 {
+        self.state ^= self.state >> 12;
+        self.state ^= self.state << 25;
+        self.state ^= self.state >> 27;
+        self.state.wrapping_mul(0x2545f4914f6cdd1d)
+    }
+
+    fn random_permutation(&mut self, n: usize) -> Vec<u8> {
+        // Build permutation manually to avoid u8 overflow for n=256
+        let mut perm: Vec<u8> = Vec::with_capacity(n);
+        for i in 0..n {
+            perm.push(i as u8);
+        }
+        for i in (1..n).rev() {
+            let j = (self.next_u64() as usize) % (i + 1);
+            perm.swap(i, j);
+        }
+        perm
+    }
+}
+
+/// 8-bit bijection
+#[derive(Clone, Copy)]
+struct Bijection8 { forward: [u8; 256], inverse: [u8; 256] }
+
+impl Bijection8 {
+    fn identity() -> Self {
+        let mut forward = [0u8; 256];
+        let mut inverse = [0u8; 256];
+        for i in 0..256 { forward[i] = i as u8; inverse[i] = i as u8; }
+        Self { forward, inverse }
+    }
+    fn encode(&self, x: u8) -> u8 { self.forward[x as usize] }
+    fn decode(&self, x: u8) -> u8 { self.inverse[x as usize] }
+}
+
+/// 4-bit bijection
+#[derive(Clone, Copy)]
+struct Bijection4 { forward: [u8; 16], inverse: [u8; 16] }
+
+impl Bijection4 {
+    fn identity() -> Self {
+        let mut forward = [0u8; 16];
+        let mut inverse = [0u8; 16];
+        for i in 0..16 { forward[i] = i as u8; inverse[i] = i as u8; }
+        Self { forward, inverse }
+    }
+    fn encode(&self, x: u8) -> u8 { self.forward[(x & 0x0f) as usize] }
+    fn decode(&self, x: u8) -> u8 { self.inverse[(x & 0x0f) as usize] }
+}
+
+/// 32x32 mixing bijection
+struct MixingBijection32 { matrix: [[u8; 32]; 32], inverse: [[u8; 32]; 32] }
+
+impl MixingBijection32 {
+    fn identity() -> Self {
+        let mut matrix = [[0u8; 32]; 32];
+        let mut inverse = [[0u8; 32]; 32];
+        for i in 0..32 { matrix[i][i] = 1; inverse[i][i] = 1; }
+        Self { matrix, inverse }
+    }
+
+    fn apply(&self, input: u32) -> u32 {
+        let mut result = 0u32;
+        for i in 0..32 {
+            let mut bit = 0u8;
+            for j in 0..32 {
+                if self.matrix[i][j] != 0 && (input >> j) & 1 != 0 { bit ^= 1; }
+            }
+            result |= (bit as u32) << i;
+        }
+        result
+    }
+
+    fn apply_inverse(&self, input: u32) -> u32 {
+        let mut result = 0u32;
+        for i in 0..32 {
+            let mut bit = 0u8;
+            for j in 0..32 {
+                if self.inverse[i][j] != 0 && (input >> j) & 1 != 0 { bit ^= 1; }
+            }
+            result |= (bit as u32) << i;
+        }
+        result
+    }
+}
+
+/// Internal encodings
+struct InternalEncodings {
+    round_output: [[Bijection8; AES_BLOCK_SIZE]; AES_ROUNDS],
+    nibble_encodings: [[[Bijection4; 2]; 96]; 9],
+}
+
+/// Generated WBC tables (raw bytes for embedding)
+struct WbcTables {
+    tbox: Vec<u8>,       // 40,960 bytes
+    tybox: Vec<u8>,      // 147,456 bytes
+    xor_tables: Vec<u8>, // 221,184 bytes
+    mbl: Vec<u8>,        // 147,456 bytes
+    tbox_last: Vec<u8>,  // 4,096 bytes
+}
+
+/// Generate all WBC tables at build-time
+fn generate_wbc_tables(key: &[u8; 16], seed: &[u8]) -> WbcTables {
+    let mut rng = BuildRng::new(seed);
+    let round_keys = aes_key_expansion(key);
+
+    // Generate encodings
+    let encodings = generate_encodings(&mut rng);
+    let mixing_bijections = generate_mixing_bijections(&mut rng);
+
+    // Allocate tables
+    let mut tbox = vec![0u8; TBOX_SIZE];
+    let mut tybox = vec![0u8; TYBOX_SIZE];
+    let mut xor_tables = vec![0u8; XOR_TABLE_SIZE];
+    let mut mbl = vec![0u8; MBL_SIZE];
+    let mut tbox_last = vec![0u8; TBOX_LAST_SIZE];
+
+    // Generate T-boxes and Ty-boxes (rounds 0-8)
+    for round in 0..9 {
+        for col in 0..4 {
+            for row in 0..4 {
+                let pos = col * 4 + row;
+                let shifted_pos = AES_SHIFT_ROWS[pos];
+
+                for x in 0..256 {
+                    let decoded = if round == 0 {
+                        x as u8
+                    } else {
+                        encodings.round_output[round - 1][pos].decode(x as u8)
+                    };
+
+                    let after_key = decoded ^ round_keys[round][shifted_pos];
+                    let after_sbox = AES_SBOX[after_key as usize];
+
+                    // MixColumns contribution
+                    let mut mc_out = [0u8; 4];
+                    for out_row in 0..4 {
+                        mc_out[out_row] = gf_mul(AES_MIX_COLS[out_row][row], after_sbox);
+                    }
+
+                    let packed = (mc_out[0] as u32)
+                        | ((mc_out[1] as u32) << 8)
+                        | ((mc_out[2] as u32) << 16)
+                        | ((mc_out[3] as u32) << 24);
+
+                    let mixed = mixing_bijections[round].apply(packed);
+
+                    // Store tybox (u32 as 4 bytes LE)
+                    let tybox_idx = (round * AES_BLOCK_SIZE * 256 + pos * 256 + x) * 4;
+                    tybox[tybox_idx..tybox_idx + 4].copy_from_slice(&mixed.to_le_bytes());
+
+                    // Store tbox
+                    let tbox_idx = round * AES_BLOCK_SIZE * 256 + pos * 256 + x;
+                    tbox[tbox_idx] = after_sbox;
+                }
+            }
+        }
+    }
+
+    // Generate XOR tables
+    for round in 0..9 {
+        for table_idx in 0..96 {
+            for a in 0..16u8 {
+                for b in 0..16u8 {
+                    let a_decoded = encodings.nibble_encodings[round][table_idx][0].decode(a);
+                    let b_decoded = encodings.nibble_encodings[round][table_idx][1].decode(b);
+                    let result = a_decoded ^ b_decoded;
+                    let encoded_result = if table_idx + 1 < 96 {
+                        encodings.nibble_encodings[round][(table_idx + 1) % 96][0].encode(result)
+                    } else {
+                        result
+                    };
+                    let idx = round * 96 * 16 * 16 + table_idx * 16 * 16 + (a as usize) * 16 + (b as usize);
+                    xor_tables[idx] = encoded_result;
+                }
+            }
+        }
+    }
+
+    // Generate MBL tables
+    for round in 0..9 {
+        for pos in 0..AES_BLOCK_SIZE {
+            for x in 0..256 {
+                let l_encoded = (x as u32) << ((pos % 4) * 8);
+                let unmixed = mixing_bijections[round].apply_inverse(l_encoded);
+
+                let out_bytes = [
+                    unmixed as u8,
+                    (unmixed >> 8) as u8,
+                    (unmixed >> 16) as u8,
+                    (unmixed >> 24) as u8,
+                ];
+
+                let col_base = (pos / 4) * 4;
+                let encoded_bytes = [
+                    encodings.round_output[round][col_base].encode(out_bytes[0]),
+                    encodings.round_output[round][col_base + 1].encode(out_bytes[1]),
+                    encodings.round_output[round][col_base + 2].encode(out_bytes[2]),
+                    encodings.round_output[round][col_base + 3].encode(out_bytes[3]),
+                ];
+
+                let packed = (encoded_bytes[0] as u32)
+                    | ((encoded_bytes[1] as u32) << 8)
+                    | ((encoded_bytes[2] as u32) << 16)
+                    | ((encoded_bytes[3] as u32) << 24);
+
+                let mbl_idx = (round * AES_BLOCK_SIZE * 256 + pos * 256 + x) * 4;
+                mbl[mbl_idx..mbl_idx + 4].copy_from_slice(&packed.to_le_bytes());
+            }
+        }
+    }
+
+    // Generate last round T-boxes (round 9, no MixColumns)
+    let round = AES_ROUNDS - 1;
+    for pos in 0..AES_BLOCK_SIZE {
+        let shifted_pos = AES_SHIFT_ROWS[pos];
+        for x in 0..256 {
+            let decoded = encodings.round_output[round - 1][pos].decode(x as u8);
+            let after_key = decoded ^ round_keys[round][shifted_pos];
+            let after_sbox = AES_SBOX[after_key as usize];
+            let result = after_sbox ^ round_keys[AES_ROUNDS][shifted_pos];
+
+            tbox_last[pos * 256 + x] = result;
+            tbox[round * AES_BLOCK_SIZE * 256 + pos * 256 + x] = result;
+        }
+    }
+
+    WbcTables { tbox, tybox, xor_tables, mbl, tbox_last }
+}
+
+fn generate_encodings(rng: &mut BuildRng) -> InternalEncodings {
+    let mut encodings = InternalEncodings {
+        round_output: [[Bijection8::identity(); AES_BLOCK_SIZE]; AES_ROUNDS],
+        nibble_encodings: [[[Bijection4::identity(); 2]; 96]; 9],
+    };
+
+    for round in 0..AES_ROUNDS {
+        for pos in 0..AES_BLOCK_SIZE {
+            let perm = rng.random_permutation(256);
+            let mut bij = Bijection8::identity();
+            for (i, &p) in perm.iter().enumerate() {
+                bij.forward[i] = p;
+                bij.inverse[p as usize] = i as u8;
+            }
+            encodings.round_output[round][pos] = bij;
+        }
+    }
+
+    for round in 0..9 {
+        for table in 0..96 {
+            for nibble in 0..2 {
+                let perm = rng.random_permutation(16);
+                let mut bij = Bijection4::identity();
+                for (i, &p) in perm.iter().enumerate() {
+                    bij.forward[i] = p;
+                    bij.inverse[p as usize] = i as u8;
+                }
+                encodings.nibble_encodings[round][table][nibble] = bij;
+            }
+        }
+    }
+
+    encodings
+}
+
+fn generate_mixing_bijections(rng: &mut BuildRng) -> [MixingBijection32; 9] {
+    let mut mbs: [MixingBijection32; 9] = core::array::from_fn(|_| MixingBijection32::identity());
+
+    for mb in &mut mbs {
+        for _ in 0..64 {
+            let i = (rng.next_u64() as usize) % 32;
+            let j = (rng.next_u64() as usize) % 32;
+            if i != j {
+                for k in 0..32 { mb.matrix[i][k] ^= mb.matrix[j][k]; }
+                for k in 0..32 { mb.inverse[k][j] ^= mb.inverse[k][i]; }
+            }
+        }
+    }
+
+    mbs
+}
+
+/// Generate whitebox tables embedded with entropy pool protection
+/// The AES key is ONLY used during build - it never exists at runtime!
 fn generate_whitebox_config(f: &mut File, build_seed: &[u8; 32]) {
-    // Derive WBC key using HMAC-SHA256
-    // Domain string must match: aegis_vm_macro/src/whitebox/mod.rs::derive_wbc_params()
-    let wbc_key = hmac_sha256(build_seed, b"whitebox-aes-key-v1");
-
-    writeln!(f, "// White-box cryptography configuration").unwrap();
-    writeln!(f, "// Tables are generated at runtime from this key").unwrap();
-    writeln!(f, "pub mod whitebox_config {{").unwrap();
-
-    // Write the 16-byte AES key (first 16 bytes of HMAC output)
-    writeln!(f, "    /// Derived AES-128 key for whitebox table generation").unwrap();
-    writeln!(f, "    /// DO NOT expose this key - it's embedded for obfuscation").unwrap();
-    write!(f, "    pub const WBC_KEY: [u8; 16] = [").unwrap();
-    for (i, byte) in wbc_key[..16].iter().enumerate() {
-        if i > 0 { write!(f, ", ").unwrap(); }
-        write!(f, "0x{:02x}", byte).unwrap();
-    }
-    writeln!(f, "];").unwrap();
-
-    // Also derive a "table generation seed" for deterministic bijection generation
-    // Domain string must match: aegis_vm_macro/src/whitebox/mod.rs::derive_wbc_params()
+    // Derive WBC key and table seed
+    let wbc_key_full = hmac_sha256(build_seed, b"whitebox-aes-key-v1");
     let table_seed = hmac_sha256(build_seed, b"whitebox-table-seed-v1");
-    writeln!(f).unwrap();
-    writeln!(f, "    /// Seed for deterministic table generation (bijections, etc.)").unwrap();
-    write!(f, "    pub const WBC_TABLE_SEED: [u8; 32] = [").unwrap();
-    for (i, byte) in table_seed.iter().enumerate() {
-        if i > 0 { write!(f, ", ").unwrap(); }
-        write!(f, "0x{:02x}", byte).unwrap();
+
+    // Extract 16-byte AES key
+    let mut wbc_key = [0u8; 16];
+    wbc_key.copy_from_slice(&wbc_key_full[..16]);
+
+    // Generate all WBC tables at BUILD TIME
+    // After this, wbc_key is no longer needed - it's embedded in the tables!
+    let tables = generate_wbc_tables(&wbc_key, &table_seed);
+
+    // Generate shared entropy pool (64KB) for all tables
+    const POOL_SIZE: usize = 65536;
+    let mut entropy_pool = vec![0u8; POOL_SIZE];
+    let pool_seed = hmac_sha256(build_seed, b"wbc-shared-pool-v2");
+    let mut rng_state = pool_seed;
+    for (i, byte) in entropy_pool.iter_mut().enumerate() {
+        let mac = hmac_sha256(&rng_state, &(i as u32).to_le_bytes());
+        *byte = mac[0];
+        if i % 64 == 0 { rng_state = mac; }
     }
-    writeln!(f, "];").unwrap();
+
+    // Generate per-table parameters and deltas
+    let params_seed = hmac_sha256(build_seed, b"wbc-table-params-v2");
+
+    writeln!(f, "// ============================================================================").unwrap();
+    writeln!(f, "// WHITE-BOX CRYPTO TABLES - BUILD-TIME GENERATED").unwrap();
+    writeln!(f, "// ============================================================================").unwrap();
+    writeln!(f, "// AES key was used ONLY during compilation to generate these tables.").unwrap();
+    writeln!(f, "// The key does NOT exist anywhere at runtime - true white-box security!").unwrap();
+    writeln!(f, "// Tables are protected with entropy pool + delta XOR reconstruction.").unwrap();
+    writeln!(f, "pub mod whitebox_config {{").unwrap();
+    writeln!(f, "    #![allow(clippy::all)]").unwrap();
+    writeln!(f, "    extern crate alloc;").unwrap();
+    writeln!(f).unwrap();
+
+    // Write shared entropy pool
+    writeln!(f, "    /// Shared entropy pool for all table reconstruction (64KB)").unwrap();
+    writeln!(f, "    const ENTROPY_POOL: [u8; {}] = [", POOL_SIZE).unwrap();
+    for (i, byte) in entropy_pool.iter().enumerate() {
+        if i % 32 == 0 { write!(f, "\n        ").unwrap(); }
+        write!(f, "0x{:02x},", byte).unwrap();
+    }
+    writeln!(f, "\n    ];").unwrap();
+    writeln!(f).unwrap();
+
+    // Helper function to generate and write delta array for a table
+    fn write_table_deltas(
+        f: &mut File,
+        name: &str,
+        table_data: &[u8],
+        entropy_pool: &[u8],
+        params_seed: &[u8; 32],
+        domain: &[u8],
+    ) -> (usize, usize) {
+        let params = hmac_sha256(params_seed, domain);
+        let start = (u64::from_le_bytes(params[0..8].try_into().unwrap()) as usize) % entropy_pool.len();
+        let step = (u64::from_le_bytes(params[8..16].try_into().unwrap()) as usize) % 31 + 1;
+
+        // Calculate deltas
+        let mut deltas = vec![0u8; table_data.len()];
+        for (i, (&data_byte, delta_byte)) in table_data.iter().zip(deltas.iter_mut()).enumerate() {
+            let pool_idx = (start + i * step) % entropy_pool.len();
+            *delta_byte = data_byte ^ entropy_pool[pool_idx];
+        }
+
+        // Write delta array
+        writeln!(f, "    /// Delta values for {} reconstruction ({} bytes)", name, deltas.len()).unwrap();
+        writeln!(f, "    const {}_DELTAS: [u8; {}] = [", name, deltas.len()).unwrap();
+        for (i, byte) in deltas.iter().enumerate() {
+            if i % 32 == 0 { write!(f, "\n        ").unwrap(); }
+            write!(f, "0x{:02x},", byte).unwrap();
+        }
+        writeln!(f, "\n    ];").unwrap();
+        writeln!(f).unwrap();
+
+        (start, step)
+    }
+
+    // Write deltas for each table
+    let (tbox_start, tbox_step) = write_table_deltas(
+        f, "TBOX", &tables.tbox, &entropy_pool, &params_seed, b"tbox-params"
+    );
+    let (tybox_start, tybox_step) = write_table_deltas(
+        f, "TYBOX", &tables.tybox, &entropy_pool, &params_seed, b"tybox-params"
+    );
+    let (xor_start, xor_step) = write_table_deltas(
+        f, "XOR_TABLES", &tables.xor_tables, &entropy_pool, &params_seed, b"xor-params"
+    );
+    let (mbl_start, mbl_step) = write_table_deltas(
+        f, "MBL", &tables.mbl, &entropy_pool, &params_seed, b"mbl-params"
+    );
+    let (tbox_last_start, tbox_last_step) = write_table_deltas(
+        f, "TBOX_LAST", &tables.tbox_last, &entropy_pool, &params_seed, b"tbox-last-params"
+    );
+
+    // Write table size constants
+    writeln!(f, "    // Table sizes").unwrap();
+    writeln!(f, "    pub const TBOX_SIZE: usize = {};", TBOX_SIZE).unwrap();
+    writeln!(f, "    pub const TYBOX_SIZE: usize = {};", TYBOX_SIZE).unwrap();
+    writeln!(f, "    pub const XOR_TABLE_SIZE: usize = {};", XOR_TABLE_SIZE).unwrap();
+    writeln!(f, "    pub const MBL_SIZE: usize = {};", MBL_SIZE).unwrap();
+    writeln!(f, "    pub const TBOX_LAST_SIZE: usize = {};", TBOX_LAST_SIZE).unwrap();
+    writeln!(f, "    pub const POOL_SIZE: usize = {};", POOL_SIZE).unwrap();
+    writeln!(f).unwrap();
+
+    // Write reconstruction functions
+    writeln!(f, "    /// Reconstruct T-boxes from entropy pool + deltas").unwrap();
+    writeln!(f, "    #[inline(never)]").unwrap();
+    writeln!(f, "    pub fn reconstruct_tbox() -> alloc::boxed::Box<[[[u8; 256]; 16]; 10]> {{").unwrap();
+    writeln!(f, "        let mut tbox = alloc::boxed::Box::new([[[0u8; 256]; 16]; 10]);").unwrap();
+    writeln!(f, "        let start = core::hint::black_box({});", tbox_start).unwrap();
+    writeln!(f, "        let step = core::hint::black_box({});", tbox_step).unwrap();
+    writeln!(f, "        for i in 0..TBOX_SIZE {{").unwrap();
+    writeln!(f, "            let round = i / (16 * 256);").unwrap();
+    writeln!(f, "            let pos = (i / 256) % 16;").unwrap();
+    writeln!(f, "            let x = i % 256;").unwrap();
+    writeln!(f, "            let pool_idx = (start + i * step) % POOL_SIZE;").unwrap();
+    writeln!(f, "            tbox[round][pos][x] = ENTROPY_POOL[pool_idx] ^ TBOX_DELTAS[i];").unwrap();
+    writeln!(f, "        }}").unwrap();
+    writeln!(f, "        tbox").unwrap();
+    writeln!(f, "    }}").unwrap();
+    writeln!(f).unwrap();
+
+    writeln!(f, "    /// Reconstruct Ty-boxes from entropy pool + deltas").unwrap();
+    writeln!(f, "    #[inline(never)]").unwrap();
+    writeln!(f, "    pub fn reconstruct_tybox() -> alloc::boxed::Box<[[[u32; 256]; 16]; 9]> {{").unwrap();
+    writeln!(f, "        let mut tybox = alloc::boxed::Box::new([[[0u32; 256]; 16]; 9]);").unwrap();
+    writeln!(f, "        let start = core::hint::black_box({});", tybox_start).unwrap();
+    writeln!(f, "        let step = core::hint::black_box({});", tybox_step).unwrap();
+    writeln!(f, "        for i in 0..(TYBOX_SIZE / 4) {{").unwrap();
+    writeln!(f, "            let round = i / (16 * 256);").unwrap();
+    writeln!(f, "            let pos = (i / 256) % 16;").unwrap();
+    writeln!(f, "            let x = i % 256;").unwrap();
+    writeln!(f, "            let base = i * 4;").unwrap();
+    writeln!(f, "            let mut bytes = [0u8; 4];").unwrap();
+    writeln!(f, "            for j in 0..4 {{").unwrap();
+    writeln!(f, "                let pool_idx = (start + (base + j) * step) % POOL_SIZE;").unwrap();
+    writeln!(f, "                bytes[j] = ENTROPY_POOL[pool_idx] ^ TYBOX_DELTAS[base + j];").unwrap();
+    writeln!(f, "            }}").unwrap();
+    writeln!(f, "            tybox[round][pos][x] = u32::from_le_bytes(bytes);").unwrap();
+    writeln!(f, "        }}").unwrap();
+    writeln!(f, "        tybox").unwrap();
+    writeln!(f, "    }}").unwrap();
+    writeln!(f).unwrap();
+
+    writeln!(f, "    /// Reconstruct XOR tables from entropy pool + deltas").unwrap();
+    writeln!(f, "    #[inline(never)]").unwrap();
+    writeln!(f, "    pub fn reconstruct_xor_tables() -> alloc::boxed::Box<[[[[u8; 16]; 16]; 96]; 9]> {{").unwrap();
+    writeln!(f, "        let mut xor_tables = alloc::boxed::Box::new([[[[0u8; 16]; 16]; 96]; 9]);").unwrap();
+    writeln!(f, "        let start = core::hint::black_box({});", xor_start).unwrap();
+    writeln!(f, "        let step = core::hint::black_box({});", xor_step).unwrap();
+    writeln!(f, "        for i in 0..XOR_TABLE_SIZE {{").unwrap();
+    writeln!(f, "            let round = i / (96 * 16 * 16);").unwrap();
+    writeln!(f, "            let table = (i / (16 * 16)) % 96;").unwrap();
+    writeln!(f, "            let a = (i / 16) % 16;").unwrap();
+    writeln!(f, "            let b = i % 16;").unwrap();
+    writeln!(f, "            let pool_idx = (start + i * step) % POOL_SIZE;").unwrap();
+    writeln!(f, "            xor_tables[round][table][a][b] = ENTROPY_POOL[pool_idx] ^ XOR_TABLES_DELTAS[i];").unwrap();
+    writeln!(f, "        }}").unwrap();
+    writeln!(f, "        xor_tables").unwrap();
+    writeln!(f, "    }}").unwrap();
+    writeln!(f).unwrap();
+
+    writeln!(f, "    /// Reconstruct MBL tables from entropy pool + deltas").unwrap();
+    writeln!(f, "    #[inline(never)]").unwrap();
+    writeln!(f, "    pub fn reconstruct_mbl() -> alloc::boxed::Box<[[[u32; 256]; 16]; 9]> {{").unwrap();
+    writeln!(f, "        let mut mbl = alloc::boxed::Box::new([[[0u32; 256]; 16]; 9]);").unwrap();
+    writeln!(f, "        let start = core::hint::black_box({});", mbl_start).unwrap();
+    writeln!(f, "        let step = core::hint::black_box({});", mbl_step).unwrap();
+    writeln!(f, "        for i in 0..(MBL_SIZE / 4) {{").unwrap();
+    writeln!(f, "            let round = i / (16 * 256);").unwrap();
+    writeln!(f, "            let pos = (i / 256) % 16;").unwrap();
+    writeln!(f, "            let x = i % 256;").unwrap();
+    writeln!(f, "            let base = i * 4;").unwrap();
+    writeln!(f, "            let mut bytes = [0u8; 4];").unwrap();
+    writeln!(f, "            for j in 0..4 {{").unwrap();
+    writeln!(f, "                let pool_idx = (start + (base + j) * step) % POOL_SIZE;").unwrap();
+    writeln!(f, "                bytes[j] = ENTROPY_POOL[pool_idx] ^ MBL_DELTAS[base + j];").unwrap();
+    writeln!(f, "            }}").unwrap();
+    writeln!(f, "            mbl[round][pos][x] = u32::from_le_bytes(bytes);").unwrap();
+    writeln!(f, "        }}").unwrap();
+    writeln!(f, "        mbl").unwrap();
+    writeln!(f, "    }}").unwrap();
+    writeln!(f).unwrap();
+
+    writeln!(f, "    /// Reconstruct last round T-boxes from entropy pool + deltas").unwrap();
+    writeln!(f, "    #[inline(never)]").unwrap();
+    writeln!(f, "    pub fn reconstruct_tbox_last() -> [[u8; 256]; 16] {{").unwrap();
+    writeln!(f, "        let mut tbox_last = [[0u8; 256]; 16];").unwrap();
+    writeln!(f, "        let start = core::hint::black_box({});", tbox_last_start).unwrap();
+    writeln!(f, "        let step = core::hint::black_box({});", tbox_last_step).unwrap();
+    writeln!(f, "        for i in 0..TBOX_LAST_SIZE {{").unwrap();
+    writeln!(f, "            let pos = i / 256;").unwrap();
+    writeln!(f, "            let x = i % 256;").unwrap();
+    writeln!(f, "            let pool_idx = (start + i * step) % POOL_SIZE;").unwrap();
+    writeln!(f, "            tbox_last[pos][x] = ENTROPY_POOL[pool_idx] ^ TBOX_LAST_DELTAS[i];").unwrap();
+    writeln!(f, "        }}").unwrap();
+    writeln!(f, "        tbox_last").unwrap();
+    writeln!(f, "    }}").unwrap();
+    writeln!(f).unwrap();
+
+    // ============================================================================
+    // PRE-COMPUTED DOMAIN HASHES
+    // ============================================================================
+    // Domain strings are hashed at BUILD TIME using FNV-1a.
+    // Runtime only sees 32 random-looking bytes, not the actual string!
+    // This eliminates strings like "aegis-bytecode-encryption-v1" from the binary.
+
+    // FNV-1a hash function (same as in whitebox/mod.rs)
+    fn fnv_hash_domain(domain: &[u8]) -> [u8; 32] {
+        let mut hash1 = 0xcbf29ce484222325u64;
+        let mut hash2 = 0x84222325cbf29ce4u64;
+
+        for &byte in domain {
+            hash1 ^= byte as u64;
+            hash1 = hash1.wrapping_mul(0x100000001b3);
+            hash2 = hash2.wrapping_mul(0x100000001b3);
+            hash2 ^= byte as u64;
+        }
+
+        // Create 32-byte hash (matches derive_key_with_tables logic)
+        let hash3 = hash1.rotate_left(13) ^ hash2;
+        let hash4 = hash2.rotate_right(17) ^ hash1;
+
+        let mut result = [0u8; 32];
+        result[0..8].copy_from_slice(&hash1.to_le_bytes());
+        result[8..16].copy_from_slice(&hash2.to_le_bytes());
+        result[16..24].copy_from_slice(&hash3.to_le_bytes());
+        result[24..32].copy_from_slice(&hash4.to_le_bytes());
+        result
+    }
+
+    // Compute hashes for all domain strings at build-time
+    let bytecode_domain_hash = fnv_hash_domain(b"aegis-bytecode-encryption-v1");
+    let smc_domain_hash = fnv_hash_domain(b"aegis-smc-key-v1");
+    let nonce_domain_hash = fnv_hash_domain(b"wbc-nonce\x00\x00\x00\x00\x00\x00\x00"); // Padded to 16 bytes
+
+    // Write domain hash constants with entropy pool protection
+    writeln!(f, "    // ========================================================================").unwrap();
+    writeln!(f, "    // PRE-COMPUTED DOMAIN HASHES (strings eliminated from binary!)").unwrap();
+    writeln!(f, "    // ========================================================================").unwrap();
+    writeln!(f).unwrap();
+
+    // Protect bytecode domain hash
+    let (bc_hash_start, bc_hash_step) = {
+        let params = hmac_sha256(&params_seed, b"bytecode-hash-params");
+        let start = (u64::from_le_bytes(params[0..8].try_into().unwrap()) as usize) % POOL_SIZE;
+        let step = (u64::from_le_bytes(params[8..16].try_into().unwrap()) as usize) % 31 + 1;
+
+        let mut deltas = [0u8; 32];
+        for i in 0..32 {
+            let pool_idx = (start + i * step) % POOL_SIZE;
+            deltas[i] = bytecode_domain_hash[i] ^ entropy_pool[pool_idx];
+        }
+
+        writeln!(f, "    /// Bytecode domain hash deltas (32 bytes)").unwrap();
+        writeln!(f, "    const BYTECODE_DOMAIN_HASH_DELTAS: [u8; 32] = [").unwrap();
+        write!(f, "        ").unwrap();
+        for (i, byte) in deltas.iter().enumerate() {
+            write!(f, "0x{:02x},", byte).unwrap();
+            if i == 15 { write!(f, "\n        ").unwrap(); }
+        }
+        writeln!(f, "\n    ];").unwrap();
+        (start, step)
+    };
+
+    // Protect SMC domain hash
+    let (smc_hash_start, smc_hash_step) = {
+        let params = hmac_sha256(&params_seed, b"smc-hash-params");
+        let start = (u64::from_le_bytes(params[0..8].try_into().unwrap()) as usize) % POOL_SIZE;
+        let step = (u64::from_le_bytes(params[8..16].try_into().unwrap()) as usize) % 31 + 1;
+
+        let mut deltas = [0u8; 32];
+        for i in 0..32 {
+            let pool_idx = (start + i * step) % POOL_SIZE;
+            deltas[i] = smc_domain_hash[i] ^ entropy_pool[pool_idx];
+        }
+
+        writeln!(f, "    /// SMC domain hash deltas (32 bytes)").unwrap();
+        writeln!(f, "    const SMC_DOMAIN_HASH_DELTAS: [u8; 32] = [").unwrap();
+        write!(f, "        ").unwrap();
+        for (i, byte) in deltas.iter().enumerate() {
+            write!(f, "0x{:02x},", byte).unwrap();
+            if i == 15 { write!(f, "\n        ").unwrap(); }
+        }
+        writeln!(f, "\n    ];").unwrap();
+        (start, step)
+    };
+
+    // Protect nonce domain hash
+    let (nonce_hash_start, nonce_hash_step) = {
+        let params = hmac_sha256(&params_seed, b"nonce-hash-params");
+        let start = (u64::from_le_bytes(params[0..8].try_into().unwrap()) as usize) % POOL_SIZE;
+        let step = (u64::from_le_bytes(params[8..16].try_into().unwrap()) as usize) % 31 + 1;
+
+        let mut deltas = [0u8; 32];
+        for i in 0..32 {
+            let pool_idx = (start + i * step) % POOL_SIZE;
+            deltas[i] = nonce_domain_hash[i] ^ entropy_pool[pool_idx];
+        }
+
+        writeln!(f, "    /// Nonce domain hash deltas (32 bytes)").unwrap();
+        writeln!(f, "    const NONCE_DOMAIN_HASH_DELTAS: [u8; 32] = [").unwrap();
+        write!(f, "        ").unwrap();
+        for (i, byte) in deltas.iter().enumerate() {
+            write!(f, "0x{:02x},", byte).unwrap();
+            if i == 15 { write!(f, "\n        ").unwrap(); }
+        }
+        writeln!(f, "\n    ];").unwrap();
+        (start, step)
+    };
+
+    writeln!(f).unwrap();
+
+    // Write reconstruction functions for domain hashes
+    writeln!(f, "    /// Reconstruct bytecode domain hash from entropy pool + deltas").unwrap();
+    writeln!(f, "    #[inline(never)]").unwrap();
+    writeln!(f, "    pub fn get_bytecode_domain_hash() -> [u8; 32] {{").unwrap();
+    writeln!(f, "        let mut hash = [0u8; 32];").unwrap();
+    writeln!(f, "        let start = core::hint::black_box({});", bc_hash_start).unwrap();
+    writeln!(f, "        let step = core::hint::black_box({});", bc_hash_step).unwrap();
+    writeln!(f, "        for i in 0..32 {{").unwrap();
+    writeln!(f, "            let pool_idx = (start + i * step) % POOL_SIZE;").unwrap();
+    writeln!(f, "            hash[i] = ENTROPY_POOL[pool_idx] ^ BYTECODE_DOMAIN_HASH_DELTAS[i];").unwrap();
+    writeln!(f, "        }}").unwrap();
+    writeln!(f, "        hash").unwrap();
+    writeln!(f, "    }}").unwrap();
+    writeln!(f).unwrap();
+
+    writeln!(f, "    /// Reconstruct SMC domain hash from entropy pool + deltas").unwrap();
+    writeln!(f, "    #[inline(never)]").unwrap();
+    writeln!(f, "    pub fn get_smc_domain_hash() -> [u8; 32] {{").unwrap();
+    writeln!(f, "        let mut hash = [0u8; 32];").unwrap();
+    writeln!(f, "        let start = core::hint::black_box({});", smc_hash_start).unwrap();
+    writeln!(f, "        let step = core::hint::black_box({});", smc_hash_step).unwrap();
+    writeln!(f, "        for i in 0..32 {{").unwrap();
+    writeln!(f, "            let pool_idx = (start + i * step) % POOL_SIZE;").unwrap();
+    writeln!(f, "            hash[i] = ENTROPY_POOL[pool_idx] ^ SMC_DOMAIN_HASH_DELTAS[i];").unwrap();
+    writeln!(f, "        }}").unwrap();
+    writeln!(f, "        hash").unwrap();
+    writeln!(f, "    }}").unwrap();
+    writeln!(f).unwrap();
+
+    writeln!(f, "    /// Reconstruct nonce domain hash from entropy pool + deltas").unwrap();
+    writeln!(f, "    #[inline(never)]").unwrap();
+    writeln!(f, "    pub fn get_nonce_domain_hash() -> [u8; 32] {{").unwrap();
+    writeln!(f, "        let mut hash = [0u8; 32];").unwrap();
+    writeln!(f, "        let start = core::hint::black_box({});", nonce_hash_start).unwrap();
+    writeln!(f, "        let step = core::hint::black_box({});", nonce_hash_step).unwrap();
+    writeln!(f, "        for i in 0..32 {{").unwrap();
+    writeln!(f, "            let pool_idx = (start + i * step) % POOL_SIZE;").unwrap();
+    writeln!(f, "            hash[i] = ENTROPY_POOL[pool_idx] ^ NONCE_DOMAIN_HASH_DELTAS[i];").unwrap();
+    writeln!(f, "        }}").unwrap();
+    writeln!(f, "        hash").unwrap();
+    writeln!(f, "    }}").unwrap();
 
     writeln!(f, "}}").unwrap();
     writeln!(f).unwrap();

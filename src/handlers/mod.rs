@@ -15,6 +15,7 @@ pub mod exec;
 pub mod vector;
 pub mod string;
 pub mod mutation;
+pub mod dispatch;
 
 // Re-export all handlers for convenience
 pub use stack::*;
