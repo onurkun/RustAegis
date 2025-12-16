@@ -143,6 +143,13 @@ pub struct VmState<'a> {
     /// Used by vm_protect macro for compiled native calls
     #[allow(clippy::type_complexity)]
     pub native_table: Option<&'a [fn(&[u64]) -> u64]>,
+
+    // ========== Async VM (Experimental) ==========
+    /// Yield mask for async VM (controls yield frequency)
+    /// Lower value = more frequent yields = more state transitions
+    /// Default: 0xFF (yield every 256 instructions)
+    #[cfg(feature = "async_vm")]
+    pub yield_mask: u64,
 }
 
 impl<'a> VmState<'a> {
@@ -175,6 +182,9 @@ impl<'a> VmState<'a> {
             start_time_ns: 0,
             // Native function table
             native_table: None,
+            // Async VM yield mask
+            #[cfg(feature = "async_vm")]
+            yield_mask: crate::build_config::YIELD_MASK,
         }
     }
 
@@ -216,6 +226,9 @@ impl<'a> VmState<'a> {
             start_time_ns: old.start_time_ns,
             // Copy native table
             native_table: old.native_table,
+            // Copy yield mask
+            #[cfg(feature = "async_vm")]
+            yield_mask: old.yield_mask,
         }
     }
 
@@ -281,6 +294,33 @@ impl<'a> VmState<'a> {
         self.start_time_ns = 0;
         // Reset native table
         self.native_table = None;
+        // Reset yield mask to default
+        #[cfg(feature = "async_vm")]
+        {
+            self.yield_mask = crate::build_config::YIELD_MASK;
+        }
+    }
+
+    /// Get yield mask for async VM
+    /// Returns the mask used to determine yield frequency
+    #[cfg(feature = "async_vm")]
+    #[inline]
+    pub fn get_yield_mask(&self) -> u64 {
+        self.yield_mask
+    }
+
+    /// Get yield mask (stub for non-async builds)
+    #[cfg(not(feature = "async_vm"))]
+    #[inline]
+    pub fn get_yield_mask(&self) -> u64 {
+        0xFF // Default: yield every 256 instructions
+    }
+
+    /// Set yield mask for async VM
+    #[cfg(feature = "async_vm")]
+    #[inline]
+    pub fn set_yield_mask(&mut self, mask: u64) {
+        self.yield_mask = mask;
     }
 
     /// Set native function table for NATIVE_CALL opcode

@@ -66,6 +66,11 @@ pub mod string_obfuscation;
 #[cfg(any(feature = "whitebox", feature = "whitebox_lite"))]
 pub mod whitebox;
 
+// Async VM module (experimental)
+// Provides async/await based execution for state machine obfuscation
+#[cfg(feature = "async_vm")]
+pub mod async_vm;
+
 // Re-exports
 pub use error::{VmError, VmResult};
 pub use state::VmState;

@@ -187,6 +187,15 @@ fn main() {
     writeln!(f, "pub const BUILD_SEQ: u32 = {};", build_seq).unwrap();
     writeln!(f).unwrap();
 
+    // Async VM yield mask (polymorphic per-build)
+    // Lower bits = more frequent yields = more state transitions
+    // Derived from build seed for per-build uniqueness
+    let yield_mask = generate_yield_mask(&build_seed);
+    writeln!(f, "/// Async VM yield mask (controls yield frequency)").unwrap();
+    writeln!(f, "/// Lower value = more frequent yields = more obfuscation").unwrap();
+    writeln!(f, "pub const YIELD_MASK: u64 = 0x{:02x};", yield_mask).unwrap();
+    writeln!(f).unwrap();
+
     // Generate shuffled opcode table
     let opcode_table = generate_opcode_table(&build_seed);
     write_opcode_table(&mut f, &opcode_table);
@@ -272,6 +281,20 @@ fn generate_watermark(customer_id: &str, build_seed: &[u8; 32], timestamp: u64) 
     let mut watermark = [0u8; 16];
     watermark.copy_from_slice(&hash[..16]);
     watermark
+}
+
+/// Generate yield mask for async VM (polymorphic per-build)
+/// Uses build seed to derive a unique mask value
+/// Returns a value between 0x3F and 0xFF (64-256 instruction intervals)
+fn generate_yield_mask(build_seed: &[u8; 32]) -> u64 {
+    // Derive mask from build seed using a specific byte
+    // Use byte 16 (middle of seed) XOR byte 31 for more entropy
+    let base = (build_seed[16] ^ build_seed[31]) as u64;
+
+    // Ensure mask is in valid range: 0x3F to 0xFF
+    // This gives yield intervals of 64 to 256 instructions
+    // Lower = more frequent = more obfuscation but slower
+    0x3F | (base & 0xC0)
 }
 
 /// Generate build seed from environment or random

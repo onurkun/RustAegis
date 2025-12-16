@@ -18,6 +18,16 @@ jobs:
       - name: Run tests
         run: cargo test --verbose
 
+    # Async VM feature tests (experimental)
+    async_vm:
+      runs-on: ubuntu-latest
+      steps:
+      - uses: actions/checkout@v4
+      - name: Build with async_vm
+        run: cargo build --features async_vm --verbose
+      - name: Test async_vm
+        run: cargo test --features async_vm --verbose
+
     # no_std / WASM uyumluluğu
     wasm:
       runs-on: ubuntu-latest
