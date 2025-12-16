@@ -1,6 +1,6 @@
 [package]
 name = "aegis_vm"
-version = "0.2.4"
+version = "0.2.5"
 edition = "2021"
 description = "Advanced Rust code virtualization and obfuscation framework"
 license = "MIT"
@@ -16,7 +16,7 @@ hmac = { version = "0.12", default-features = false }
 sha2 = { version = "0.10", default-features = false }
 digest = { version = "0.10", default-features = false }
 subtle = { version = "2.5", default-features = false }
-aegis_vm_macro = "0.2.2"
+aegis_vm_macro = "0.2.5"
 # For no_std Once cell (used by generated macro code)
 spin = { version = "0.10", default-features = false, features = ["once"] }
 
