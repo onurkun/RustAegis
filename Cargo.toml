@@ -18,7 +18,7 @@ digest = { version = "0.10", default-features = false }
 subtle = { version = "2.5", default-features = false }
 aegis_vm_macro = "0.2.2"
 # For no_std Once cell (used by generated macro code)
-spin = { version = "0.9", default-features = false, features = ["once"] }
+spin = { version = "0.10", default-features = false, features = ["once"] }
 
 [build-dependencies]
 hmac = "0.12"
