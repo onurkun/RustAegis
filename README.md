@@ -29,7 +29,7 @@ Add the following to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-aegis_vm = "0.2.2"
+aegis_vm = "0.2.3"
 ```
 
 ## 🛠️ Usage
@@ -184,7 +184,7 @@ Virtualization comes with a cost. RustAegis is designed for **security**, not sp
 
 Check the `examples/` directory for complete test cases:
 
-*   `001_test.rs`: **NEW** - Native function call support demo.
+*   `001_test.rs`: Native function call support demo.
 *   `01_arithmetic.rs`: Demonstrates MBA transformations.
 *   `02_control_flow.rs`: Demonstrates if/else logic protection.
 *   `03_loops.rs`: Demonstrates loop virtualization.
@@ -192,6 +192,7 @@ Check the `examples/` directory for complete test cases:
 *   `05_whitebox_crypto.rs`: Demonstrates White-Box Cryptography key protection.
 *   `06_native_calls.rs`: Manual NativeRegistry usage (legacy).
 *   `07_native_call_macro.rs`: Automatic native call via macro.
+*   `08_async_vm.rs`: **NEW** - Async VM with state machine obfuscation (experimental).
 *   `wasm_test/`: Complete WASM test project with `wasm-pack`.
 
 Run them with:
@@ -199,6 +200,7 @@ Run them with:
 cargo run --example 001_test
 cargo run --example 01_arithmetic
 cargo run --example 07_native_call_macro
+cargo run --example 08_async_vm --features async_vm
 
 # For WASM tests
 cd examples/wasm_test
@@ -221,7 +223,7 @@ cargo install wasm-pack
 ### Cargo.toml Configuration
 ```toml
 [dependencies]
-aegis_vm = { version = "0.2.1", default-features = false }
+aegis_vm = { version = "0.2.3", default-features = false }
 wasm-bindgen = "0.2"
 ```
 
@@ -261,7 +263,68 @@ wasm-pack test --headless --firefox
 
 The compiled `.wasm` file will be in `pkg/` directory.
 
+## 🧪 Experimental Features
+
+### Async VM Engine (`async_vm`)
+
+> **Status:** Experimental - Use for testing and research only
+
+The Async VM feature transforms the VM execution loop into an async/await state machine, adding an extra layer of obfuscation against reverse engineering.
+
+**How it works:**
+- Rust compiler transforms `async fn` into a complex state machine enum
+- Debuggers stepping through code see executor transitions instead of direct logic
+- Yield points inject state transitions at configurable intervals
+
+**Enable:**
+```toml
+[dependencies]
+aegis_vm = { version = "0.2.3", features = ["async_vm"] }
+```
+
+**Usage:**
+```rust
+use aegis_vm::async_vm::execute_async;
+
+// Same as execute(), but uses async state machine internally
+let result = execute_async(&bytecode, &input)?;
+```
+
+**Trade-offs:**
+| Aspect | Impact |
+|--------|--------|
+| Binary size | +5-10KB (state machine code) |
+| Performance | ~2-5% overhead (yield points) |
+| Analysis difficulty | Harder to trace in debuggers |
+
+**Note:** This is an obfuscation layer, not cryptographic security. A skilled analyst can still reverse the state machine given enough time.
+
 ## 📋 Changelog
+
+### v0.2.3
+
+**Async VM Engine (Experimental):**
+*   **State Machine Obfuscation:** New `async_vm` feature transforms VM dispatch loop into async/await state machine, complicating control flow analysis in debuggers.
+*   **Custom Micro-Executor:** Zero-dependency `block_on` implementation (~60 lines) with `no_std` support.
+*   **Polymorphic Yield Mask:** `YIELD_MASK` constant derived from build seed - yield frequency varies per-build (64-256 instruction intervals).
+*   **Battery-Friendly:** Uses `std::thread::yield_now()` or `core::hint::spin_loop()` instead of busy-spin.
+
+**New Module Structure:**
+```
+src/async_vm/
+├── mod.rs        # Module exports
+├── executor.rs   # block_on + noop_waker
+├── yielder.rs    # YieldNow future
+└── engine.rs     # Async run loop
+```
+
+**API:**
+*   `execute_async(code, input)` - Async version of `execute()`
+*   `execute_async_with_natives(code, input, registry)` - With native function support
+*   `VmState::get_yield_mask()` / `set_yield_mask()` - Runtime yield configuration
+
+**CI/CD:**
+*   Added `async_vm` job to GitHub Actions workflow
 
 ### v0.2.2
 

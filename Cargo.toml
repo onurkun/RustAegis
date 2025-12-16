@@ -1,6 +1,6 @@
 [package]
 name = "aegis_vm"
-version = "0.2.2"
+version = "0.2.3"
 edition = "2021"
 description = "Advanced Rust code virtualization and obfuscation framework"
 license = "MIT"
@@ -37,6 +37,9 @@ handler_mutation = []
 whitebox = []
 # Lightweight WBC variant (~50KB, T-boxes only) - alternative to full whitebox
 whitebox_lite = []
+# Experimental: Async VM engine for anti-analysis (state machine obfuscation)
+# Adds ~100 lines, no external dependencies. Custom micro-executor.
+async_vm = []
 
 [profile.release]
 strip = true
