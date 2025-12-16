@@ -47,10 +47,5 @@ fn main() {
     assert_eq!(result4, 64);
 
     println!("\nAll tests passed!");
-
-    #[cfg(feature = "std")]
-    println!("Running with std feature (using OnceLock)");
-
-    #[cfg(not(feature = "std"))]
-    println!("Running without std feature (using spin::Once)");
+    println!("Using spin::Once for bytecode caching (works for both std and no_std)");
 }

@@ -71,6 +71,13 @@ pub mod whitebox;
 #[cfg(feature = "async_vm")]
 pub mod async_vm;
 
+// Re-exports for macro-generated code (works in user's no_std crates)
+pub use spin::Once as SpinOnce;
+#[cfg(feature = "std")]
+pub use std::vec::Vec as StdVec;
+#[cfg(not(feature = "std"))]
+pub use alloc::vec::Vec as StdVec;
+
 // Re-exports
 pub use error::{VmError, VmResult};
 pub use state::VmState;

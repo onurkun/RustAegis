@@ -29,7 +29,7 @@ Add the following to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-aegis_vm = "0.2.4"
+aegis_vm = "0.2.51"
 ```
 
 ## 🛠️ Usage
@@ -223,7 +223,7 @@ cargo install wasm-pack
 ### Cargo.toml Configuration
 ```toml
 [dependencies]
-aegis_vm = { version = "0.2.4", default-features = false }
+aegis_vm = { version = "0.2.51", default-features = false }
 wasm-bindgen = "0.2"
 ```
 
@@ -279,7 +279,7 @@ The Async VM feature transforms the VM execution loop into an async/await state 
 **Enable:**
 ```toml
 [dependencies]
-aegis_vm = { version = "0.2.4", features = ["async_vm"] }
+aegis_vm = { version = "0.2.51", features = ["async_vm"] }
 ```
 
 **Usage:**
@@ -301,10 +301,12 @@ let result = execute_async(&bytecode, &input)?;
 
 ## 📋 Changelog
 
-### v0.2.4
+### v0.2.51
 
-**Bug Fix:**
-*   **Missing `spin` Dependency (GitHub Issue #1):** The proc-macro generates `spin::Once` for `no_std` caching, but `spin` was not listed as a dependency. Fixed by adding `spin = "0.9"` to dependencies.
+**Bug Fixes (GitHub Issue #1):**
+*   **Missing `spin` Dependency:** Added `spin = "0.10"` to dependencies.
+*   **cfg Warning Fix:** Removed `#[cfg(feature = "std")]` that checked wrong crate.
+*   **no_std Compatibility:** Generated code now uses `aegis_vm::SpinOnce` and `aegis_vm::StdVec` re-exports instead of requiring user crate to have these dependencies.
 
 ### v0.2.3
 
