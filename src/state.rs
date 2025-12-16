@@ -137,6 +137,11 @@ pub struct VmState<'a> {
     pub last_timing_ns: u64,
     /// Execution start time (for timing checks)
     pub start_time_ns: u64,
+
+    // ========== Native Function Table ==========
+    /// Optional native function table for NATIVE_CALL opcode
+    /// Used by vm_protect macro for compiled native calls
+    pub native_table: Option<&'a [fn(&[u64]) -> u64]>,
 }
 
 impl<'a> VmState<'a> {
@@ -167,6 +172,8 @@ impl<'a> VmState<'a> {
             // Timing
             last_timing_ns: 0,
             start_time_ns: 0,
+            // Native function table
+            native_table: None,
         }
     }
 
@@ -179,7 +186,7 @@ impl<'a> VmState<'a> {
 
     /// Create VM state with new code reference but preserving execution state
     /// Used by SMC engine to update code view after decryption
-    pub fn with_code_and_state(code: &'a [u8], input: &'a [u8], old: &VmState) -> Self {
+    pub fn with_code_and_state(code: &'a [u8], input: &'a [u8], old: &VmState<'a>) -> Self {
         Self {
             // Copy registers
             regs: old.regs.clone(),
@@ -206,6 +213,8 @@ impl<'a> VmState<'a> {
             // Copy timing
             last_timing_ns: old.last_timing_ns,
             start_time_ns: old.start_time_ns,
+            // Copy native table
+            native_table: old.native_table,
         }
     }
 
@@ -269,6 +278,21 @@ impl<'a> VmState<'a> {
         // Reset timing
         self.last_timing_ns = 0;
         self.start_time_ns = 0;
+        // Reset native table
+        self.native_table = None;
+    }
+
+    /// Set native function table for NATIVE_CALL opcode
+    /// Used by vm_protect macro for compiled native calls
+    #[inline]
+    pub fn set_native_table(&mut self, table: &'a [fn(&[u64]) -> u64]) {
+        self.native_table = Some(table);
+    }
+
+    /// Get native function by index
+    #[inline]
+    pub fn get_native_fn(&self, index: usize) -> Option<fn(&[u64]) -> u64> {
+        self.native_table.and_then(|t| t.get(index).copied())
     }
 
     // =========================================================================

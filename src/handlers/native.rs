@@ -6,10 +6,14 @@ use crate::error::{VmError, VmResult};
 use crate::native::{NativeRegistry, MAX_NATIVE_ARGS};
 use crate::state::VmState;
 
-/// NATIVE_CALL: Call native function from registry
+/// NATIVE_CALL: Call native function from registry or table
 ///
 /// Format: NATIVE_CALL <func_id u8> <arg_count u8>
 /// Pops arg_count values from stack (in reverse order), calls function, pushes result
+///
+/// Priority:
+/// 1. If native_table is set on VmState, use that (for vm_protect macro)
+/// 2. Otherwise fall back to NativeRegistry
 pub fn handle_native_call(state: &mut VmState, registry: &NativeRegistry) -> VmResult<()> {
     let func_id = state.read_u8()?;
     let arg_count = state.read_u8()? as usize;
@@ -25,7 +29,13 @@ pub fn handle_native_call(state: &mut VmState, registry: &NativeRegistry) -> VmR
         args[i] = state.pop()?;
     }
 
-    // Call the native function
+    // Try native table first (for vm_protect macro)
+    if let Some(native_fn) = state.get_native_fn(func_id as usize) {
+        let result = native_fn(&args[..arg_count]);
+        return state.push(result);
+    }
+
+    // Fall back to registry
     let result = registry.call(func_id, &args[..arg_count])?;
 
     // Push result

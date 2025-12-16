@@ -69,7 +69,7 @@ pub mod whitebox;
 // Re-exports
 pub use error::{VmError, VmResult};
 pub use state::VmState;
-pub use engine::{execute, execute_with_state, execute_with_natives, run, run_with_natives};
+pub use engine::{execute, execute_with_state, execute_with_natives, execute_with_native_table, run, run_with_natives, run_with_native_table};
 pub use bytecode::{BytecodeHeader, BytecodePackage, ProtectionLevel, BuildInfo};
 pub use crypto::CryptoContext;
 pub use native::{NativeRegistry, NativeRegistryBuilder, NativeFunction, standard_ids};

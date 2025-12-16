@@ -11,6 +11,7 @@ RustAegis is a research-grade software protection system that compiles Rust code
 ## 🚀 Key Features
 
 *   **Virtualization:** Converts Rust AST directly into a custom stack-based VM instruction set with 100+ opcodes.
+*   **Native Function Calls:** External functions called inside `#[vm_protect]` are automatically wrapped and executed. No manual setup required.
 *   **Rich Type Support:** Strings, Vectors/Arrays, integers (signed/unsigned), booleans with proper type tracking.
 *   **Heap Memory:** Dynamic memory allocation with automatic cleanup on scope exit.
 *   **Variable Shadowing:** Full Rust-like scoping with nested block support.
@@ -28,7 +29,7 @@ Add the following to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-aegis_vm = "0.2.1"
+aegis_vm = "0.2.2"
 ```
 
 ## 🛠️ Usage
@@ -71,6 +72,30 @@ fn compute_checksum() -> u64 {
 
     // Combine with string hash
     sum + secret.len()
+}
+
+// NEW in v0.2.2: Native Function Calls
+fn is_license_valid() -> bool {
+    // External license check logic
+    true
+}
+
+fn log_event(code: u64) {
+    println!("Event: {}", code);
+}
+
+#[vm_protect]
+fn check_authorization() -> bool {
+    // External functions are automatically wrapped!
+    let valid: bool = is_license_valid();  // Note: explicit bool type
+
+    if !valid {
+        log_event(1);  // Native call works
+        return false;
+    }
+
+    log_event(0);
+    true
 }
 ```
 
@@ -159,18 +184,21 @@ Virtualization comes with a cost. RustAegis is designed for **security**, not sp
 
 Check the `examples/` directory for complete test cases:
 
+*   `001_test.rs`: **NEW** - Native function call support demo.
 *   `01_arithmetic.rs`: Demonstrates MBA transformations.
 *   `02_control_flow.rs`: Demonstrates if/else logic protection.
 *   `03_loops.rs`: Demonstrates loop virtualization.
 *   `04_wasm.rs`: Demonstrates WASM integration.
 *   `05_whitebox_crypto.rs`: Demonstrates White-Box Cryptography key protection.
+*   `06_native_calls.rs`: Manual NativeRegistry usage (legacy).
+*   `07_native_call_macro.rs`: Automatic native call via macro.
 *   `wasm_test/`: Complete WASM test project with `wasm-pack`.
 
 Run them with:
 ```bash
+cargo run --example 001_test
 cargo run --example 01_arithmetic
-cargo run --example 05_whitebox_crypto
-cargo run --example 04_wasm
+cargo run --example 07_native_call_macro
 
 # For WASM tests
 cd examples/wasm_test
@@ -234,6 +262,29 @@ wasm-pack test --headless --firefox
 The compiled `.wasm` file will be in `pkg/` directory.
 
 ## 📋 Changelog
+
+### v0.2.2
+
+**Native Function Call Support:**
+*   **Automatic External Function Calls:** Functions called inside `#[vm_protect]` are now automatically wrapped and executed via native call mechanism. No manual `NativeRegistry` setup required.
+*   **Function Table Pattern:** Macro generates wrapper functions (`fn(&[u64]) -> u64`) and creates a native function table at compile-time.
+*   **`NATIVE_CALL` Opcode:** New opcode `0xF0 <index> <arg_count>` for calling external functions from VM bytecode.
+*   **`execute_with_native_table()`:** New engine function that accepts a native function table for macro-generated code.
+
+**Boolean NOT Fix:**
+*   **Logical NOT for Booleans:** Fixed `!bool` operator to use XOR instead of bitwise NOT. Previously `!true` would return `0xFFFFFFFFFFFFFFFE` (truthy), now correctly returns `0` (false).
+*   **Type Detection:** Added `is_bool_expr()` to detect boolean expressions and apply correct NOT semantics.
+
+**Improved Error Messages:**
+*   **Macro Call Detection:** Rust macros (`println!`, `log::error!`, etc.) now produce clear error: `"Macro calls not supported in VM: println!(...). Use a native function wrapper instead."`
+*   **Region Check Fix:** Fixed `decrypted` → `bytecode` variable name in paranoid mode region integrity check.
+
+**New Example:**
+*   `examples/001_test.rs`: Demonstrates native call support with VM-protected functions calling external functions.
+
+**Important Notes:**
+*   Use explicit type annotations for bool returns from function calls: `let result: bool = some_function();`
+*   Supported argument/return types: `u64`, `u32`, `i64`, `i32`, `u16`, `u8`, `bool`, `char`
 
 ### v0.2.1
 

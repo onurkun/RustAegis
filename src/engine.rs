@@ -24,6 +24,35 @@ pub fn execute_with_natives(code: &[u8], input: &[u8], registry: &NativeRegistry
     Ok(state.result)
 }
 
+/// Execute bytecode with native function table (array of function pointers)
+/// This is used by the vm_protect macro for compiled native calls
+pub fn execute_with_native_table(code: &[u8], input: &[u8], native_table: &[fn(&[u64]) -> u64]) -> VmResult<u64> {
+    let mut state = VmState::new(code, input);
+    state.set_native_table(native_table);
+    run_with_native_table(&mut state)?;
+    Ok(state.result)
+}
+
+/// Main execution loop with native function table support
+pub fn run_with_native_table(state: &mut VmState) -> VmResult<()> {
+    let empty_registry = NativeRegistry::new();
+    while !state.halted && state.ip < state.code.len() {
+        // Instruction count limit
+        state.instruction_count += 1;
+        if state.instruction_count > MAX_INSTRUCTIONS {
+            return Err(VmError::MaxInstructionsExceeded);
+        }
+
+        // Fetch opcode
+        let opcode = state.read_u8()?;
+
+        // Indirect dispatch via function pointer table
+        dispatch_indirect(state, opcode, &empty_registry)?;
+    }
+
+    Ok(())
+}
+
 /// Execute bytecode, return full state (for debugging)
 pub fn execute_with_state<'a>(code: &'a [u8], input: &'a [u8]) -> VmResult<VmState<'a>> {
     let mut state = VmState::new(code, input);
