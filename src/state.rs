@@ -141,6 +141,7 @@ pub struct VmState<'a> {
     // ========== Native Function Table ==========
     /// Optional native function table for NATIVE_CALL opcode
     /// Used by vm_protect macro for compiled native calls
+    #[allow(clippy::type_complexity)]
     pub native_table: Option<&'a [fn(&[u64]) -> u64]>,
 }
 

@@ -7,7 +7,7 @@
 
 use aegis_vm::whitebox::{
     init_tables, init_tables_lite, whitebox_encrypt, whitebox_encrypt_lite,
-    encrypt_block, encrypt_blocks, WhiteboxTables, AES_BLOCK_SIZE, WHITEBOX_TABLE_SIZE,
+    encrypt_block, encrypt_blocks, AES_BLOCK_SIZE, WHITEBOX_TABLE_SIZE,
 };
 
 #[test]

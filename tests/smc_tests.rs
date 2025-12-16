@@ -289,7 +289,7 @@ fn test_smc_after_execution_re_encrypted() {
 
     // After execution, code should be re-encrypted (same as before)
     // Note: we need to pass a clone because execute_smc takes ownership
-    let mut code2 = encrypted_copy;
+    let code2 = encrypted_copy;
     let _ = execute_smc(code2.clone(), &[], &config).unwrap();
     // The bytecode is re-encrypted after execution
 }
