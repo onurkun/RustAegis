@@ -1,6 +1,6 @@
 [package]
 name = "aegis_vm"
-version = "0.2.51"
+version = "0.2.52"
 edition = "2021"
 description = "Advanced Rust code virtualization and obfuscation framework"
 license = "MIT"
@@ -10,19 +10,22 @@ categories = ["cryptography", "development-tools"]
 readme = "README.md"
 
 [dependencies]
-fastrand = "2.0"
-aes-gcm = { version = "0.10", default-features = false, features = ["aes", "alloc"] }
-hmac = { version = "0.12", default-features = false }
-sha2 = { version = "0.10", default-features = false }
-digest = { version = "0.10", default-features = false }
+fastrand = "2.4"
+aes-gcm = { version = "0.10.3", default-features = false, features = [
+    "aes",
+    "alloc",
+] }
+hmac = { version = "0.13", default-features = false }
+sha2 = { version = "0.11", default-features = false }
+digest = { version = "0.11", default-features = false }
 subtle = { version = "2.5", default-features = false }
 aegis_vm_macro = { path = "../aegis_vm_macro" }
 # For no_std Once cell (used by generated macro code)
 spin = { version = "0.10", default-features = false, features = ["once"] }
 
 [build-dependencies]
-hmac = "0.12"
-sha2 = "0.10"
+hmac = "0.13"
+sha2 = "0.11"
 hex = "0.4"
 
 [dev-dependencies]

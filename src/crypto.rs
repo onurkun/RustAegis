@@ -5,9 +5,11 @@
 use crate::error::{VmError, VmResult};
 use aes_gcm::{
     aead::Aead,
-    Aes256Gcm, Nonce, KeyInit,
+    Aes256Gcm, Nonce,
+    KeyInit as AesKeyInit,
 };
 use hmac::{Hmac, Mac};
+use hmac::digest::KeyInit as HmacKeyInit;
 use sha2::Sha256;
 
 #[cfg(not(feature = "std"))]
@@ -61,7 +63,7 @@ type HmacSha256 = Hmac<Sha256>;
 ///
 /// This creates a unique key per build, making each build's encryption different.
 pub fn derive_key(build_seed: &[u8; 32], context: &[u8]) -> [u8; KEY_SIZE] {
-    let mut mac = <HmacSha256 as Mac>::new_from_slice(build_seed)
+    let mut mac = HmacSha256::new_from_slice(build_seed)
         .expect("HMAC can take any size key");
     mac.update(context);
     // Use obfuscated domain string
@@ -79,7 +81,7 @@ pub fn derive_key(build_seed: &[u8; 32], context: &[u8]) -> [u8; KEY_SIZE] {
 /// Uses HMAC to create unpredictable nonces while maintaining uniqueness.
 /// Counter ensures we never reuse a nonce with the same key.
 pub fn derive_nonce(build_seed: &[u8; 32], counter: u64) -> [u8; NONCE_SIZE] {
-    let mut mac = <HmacSha256 as Mac>::new_from_slice(build_seed)
+    let mut mac = HmacSha256::new_from_slice(build_seed)
         .expect("HMAC can take any size key");
     mac.update(&counter.to_le_bytes());
     // Use obfuscated domain string
@@ -150,7 +152,7 @@ pub fn decrypt_bytecode(
 
 /// Compute HMAC-SHA256 for integrity verification
 pub fn compute_hmac(key: &[u8], data: &[u8]) -> [u8; 32] {
-    let mut mac = <HmacSha256 as Mac>::new_from_slice(key)
+    let mut mac = HmacSha256::new_from_slice(key)
         .expect("HMAC can take any size key");
     mac.update(data);
 
@@ -162,7 +164,7 @@ pub fn compute_hmac(key: &[u8], data: &[u8]) -> [u8; 32] {
 
 /// Verify HMAC-SHA256 in constant time
 pub fn verify_hmac(key: &[u8], data: &[u8], expected: &[u8; 32]) -> bool {
-    let mut mac = <HmacSha256 as Mac>::new_from_slice(key)
+    let mut mac = HmacSha256::new_from_slice(key)
         .expect("HMAC can take any size key");
     mac.update(data);
 
@@ -171,7 +173,7 @@ pub fn verify_hmac(key: &[u8], data: &[u8], expected: &[u8; 32]) -> bool {
 
 /// Derive build ID from seed (first 8 bytes of HMAC)
 pub fn derive_build_id(build_seed: &[u8; 32]) -> u64 {
-    let mut mac = <HmacSha256 as Mac>::new_from_slice(build_seed)
+    let mut mac = HmacSha256::new_from_slice(build_seed)
         .expect("HMAC can take any size key");
     // Use obfuscated domain string
     let domain = xor_decode(&BUILDID_DOMAIN_ENC, 0x5A);

@@ -29,7 +29,7 @@ Add the following to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-aegis_vm = "0.2.51"
+aegis_vm = "0.2.52"
 ```
 
 ## 🛠️ Usage
