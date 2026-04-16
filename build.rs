@@ -2035,7 +2035,7 @@ fn generate_whitebox_config(f: &mut BufWriter<File>, build_seed: &[u8; 32]) {
         let copy_len = (POOL_SIZE - pos).min(32);
         entropy_pool[pos..pos + copy_len].copy_from_slice(&mac[..copy_len]);
         pos += 32;
-        if pos % 2048 == 0 { rng_state = mac; }
+        if pos.is_multiple_of(2048) { rng_state = mac; }
     }
 
     // Generate per-table parameters and deltas
