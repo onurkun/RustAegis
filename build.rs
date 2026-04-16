@@ -10,7 +10,7 @@
 
 use std::env;
 use std::fs::File;
-use std::io::Write;
+use std::io::{Write, BufWriter};
 use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -18,13 +18,23 @@ fn main() {
     // Generate build configuration
     let out_dir = env::var("OUT_DIR").expect("OUT_DIR not set");
     let dest_path = Path::new(&out_dir).join("build_config.rs");
-    let mut f = File::create(&dest_path).expect("Could not create build_config.rs");
+    let mut f = BufWriter::new(File::create(&dest_path).expect("Could not create build_config.rs"));
 
     // Get build timestamp
-    let timestamp = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .expect("Time went backwards")
-        .as_secs();
+    // Support SOURCE_DATE_EPOCH for reproducible builds (https://reproducible-builds.org)
+    // When ANTICHEAT_BUILD_KEY is set, use SOURCE_DATE_EPOCH or a fixed epoch to ensure
+    // deterministic output and prevent unnecessary downstream recompilation.
+    let timestamp = if let Ok(epoch) = env::var("SOURCE_DATE_EPOCH") {
+        epoch.parse::<u64>().unwrap_or(0)
+    } else if env::var("ANTICHEAT_BUILD_KEY").is_ok() {
+        // Fixed key mode: use epoch 0 to ensure deterministic output
+        0
+    } else {
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("Time went backwards")
+            .as_secs()
+    };
 
     // Generate BUILD_SEED
     // In production: Use ANTICHEAT_BUILD_KEY environment variable
@@ -52,17 +62,17 @@ fn main() {
     // Combined with OLLVM, this logic becomes extremely hard to reverse.
 
     // 1. Generate Entropy Pool (1024 bytes of junk)
+    // Use all 32 bytes from each HMAC call instead of just mac[0]
     let mut entropy_pool = [0u8; 1024];
-    let pool_seed = generate_random_seed(); // Seed for the pool itself
+    let pool_seed = generate_random_seed();
     let mut rng_state = pool_seed;
-    for (i, byte) in entropy_pool.iter_mut().enumerate() {
-        // Simple LCG for pool generation
-        let mac = hmac_sha256(&rng_state, &(i as u32).to_le_bytes());
-        *byte = mac[0];
-        // Update state occasionally
-        if i % 32 == 0 {
-            rng_state = mac;
-        }
+    let mut pos = 0;
+    while pos < 1024 {
+        let mac = hmac_sha256(&rng_state, &(pos as u32).to_le_bytes());
+        let copy_len = (1024 - pos).min(32);
+        entropy_pool[pos..pos + copy_len].copy_from_slice(&mac[..copy_len]);
+        pos += 32;
+        if pos % 256 == 0 { rng_state = mac; }
     }
 
     // 2. Calculate Delta values to reconstruct the real seed
@@ -228,12 +238,20 @@ fn main() {
     let flag_bits = generate_flag_bits(&build_seed);
     write_flag_bits(&mut f, &flag_bits);
 
-    // Generate mutated handlers
+    // Generate mutated handlers (only when handler_mutation feature is enabled)
     let mutated_handlers_path = Path::new(&out_dir).join("mutated_handlers.rs");
-    generate_mutated_handlers(&build_seed, &mutated_handlers_path);
+    if env::var("CARGO_FEATURE_HANDLER_MUTATION").is_ok() {
+        generate_mutated_handlers(&build_seed, &mutated_handlers_path);
+    } else {
+        // Write empty stub so include! doesn't fail
+        let mut stub = BufWriter::new(File::create(&mutated_handlers_path).expect("Could not create mutated_handlers.rs"));
+        writeln!(stub, "// handler_mutation feature not enabled - stub file").unwrap();
+    }
 
-    // Generate whitebox crypto key (if feature enabled)
-    generate_whitebox_config(&mut f, &build_seed);
+    // Generate whitebox crypto key (only when whitebox feature is enabled)
+    if env::var("CARGO_FEATURE_WHITEBOX").is_ok() || env::var("CARGO_FEATURE_WHITEBOX_LITE").is_ok() {
+        generate_whitebox_config(&mut f, &build_seed);
+    }
 
     // Write build history for debugging
     write_build_history(
@@ -248,17 +266,10 @@ fn main() {
     println!("cargo:rerun-if-env-changed=ANTICHEAT_BUILD_SEQ");
     println!("cargo:rerun-if-changed=build.rs");
 
-    // CRITICAL: Force rebuild when seed file changes
-    // This ensures proc-macro output stays in sync with runtime
-    if let Ok(out_dir) = env::var("OUT_DIR") {
-        if let Some(target_dir) = Path::new(&out_dir)
-            .ancestors()
-            .find(|p| p.file_name().is_some_and(|n| n == "target"))
-        {
-            let seed_file = target_dir.join(".anticheat_build_seed");
-            println!("cargo:rerun-if-changed={}", seed_file.display());
-        }
-    }
+    // NOTE: Removed rerun-if-changed for .anticheat_build_seed
+    // The build script writes to that file during execution, which created
+    // a self-triggering rebuild loop (build.rs writes -> cargo detects change -> reruns build.rs)
+    // Proc-macro sync is handled via the shared seed file without cargo watching it.
 }
 
 /// Generate watermark from customer ID, build seed, and timestamp
@@ -330,7 +341,8 @@ fn write_shared_seed(seed: &[u8; 32]) {
 
         if let Some(target) = target_dir {
             let seed_file = target.join(".anticheat_build_seed");
-            if let Ok(mut f) = File::create(&seed_file) {
+            if let Ok(f) = File::create(&seed_file) {
+                let mut f = BufWriter::new(f);
                 // Write as hex
                 for byte in seed {
                     let _ = write!(f, "{:02x}", byte);
@@ -350,7 +362,8 @@ fn write_shared_opcode_table(table: &OpcodeTable) {
 
         if let Some(target) = target_dir {
             let table_file = target.join(".anticheat_opcode_table");
-            if let Ok(mut f) = File::create(&table_file) {
+            if let Ok(f) = File::create(&table_file) {
+                let mut f = BufWriter::new(f);
                 // Write encode table as hex (256 bytes)
                 for byte in &table.encode {
                     let _ = write!(f, "{:02x}", byte);
@@ -386,10 +399,11 @@ fn write_build_history(
 
     let Some(history_path) = history_path else { return };
 
-    let Ok(mut file) = OpenOptions::new()
+    let Ok(file) = OpenOptions::new()
         .create(true)
         .append(true)
         .open(&history_path) else { return };
+    let mut file = BufWriter::new(file);
 
     // Format timestamp as human readable
     let datetime = format_timestamp(timestamp);
@@ -606,99 +620,21 @@ fn get_git_hash() -> Option<String> {
     }
 }
 
-/// Simple SHA-256 implementation for build script (no external deps)
+/// SHA-256 using the sha2 crate (already in build-dependencies)
 fn sha256(data: &[u8]) -> [u8; 32] {
-    // Initial hash values (first 32 bits of fractional parts of square roots of first 8 primes)
-    let mut h: [u32; 8] = [
-        0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a,
-        0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19,
-    ];
+    use sha2::{Sha256, Digest};
+    let mut hasher = Sha256::new();
+    hasher.update(data);
+    hasher.finalize().into()
+}
 
-    // Round constants
-    const K: [u32; 64] = [
-        0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5,
-        0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3, 0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174,
-        0xe49b69c1, 0xefbe4786, 0x0fc19dc6, 0x240ca1cc, 0x2de92c6f, 0x4a7484aa, 0x5cb0a9dc, 0x76f988da,
-        0x983e5152, 0xa831c66d, 0xb00327c8, 0xbf597fc7, 0xc6e00bf3, 0xd5a79147, 0x06ca6351, 0x14292967,
-        0x27b70a85, 0x2e1b2138, 0x4d2c6dfc, 0x53380d13, 0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85,
-        0xa2bfe8a1, 0xa81a664b, 0xc24b8b70, 0xc76c51a3, 0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070,
-        0x19a4c116, 0x1e376c08, 0x2748774c, 0x34b0bcb5, 0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f, 0x682e6ff3,
-        0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208, 0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2,
-    ];
-
-    // Pre-processing: adding padding bits
-    let ml = (data.len() as u64) * 8;
-    let mut padded = data.to_vec();
-    padded.push(0x80);
-
-    while (padded.len() % 64) != 56 {
-        padded.push(0x00);
-    }
-
-    // Append original length in bits as 64-bit big-endian
-    padded.extend_from_slice(&ml.to_be_bytes());
-
-    // Process each 512-bit (64-byte) chunk
-    for chunk in padded.chunks(64) {
-        let mut w = [0u32; 64];
-
-        // Break chunk into 16 32-bit big-endian words
-        for i in 0..16 {
-            w[i] = u32::from_be_bytes([
-                chunk[i * 4],
-                chunk[i * 4 + 1],
-                chunk[i * 4 + 2],
-                chunk[i * 4 + 3],
-            ]);
-        }
-
-        // Extend the first 16 words into the remaining 48 words
-        for i in 16..64 {
-            let s0 = w[i - 15].rotate_right(7) ^ w[i - 15].rotate_right(18) ^ (w[i - 15] >> 3);
-            let s1 = w[i - 2].rotate_right(17) ^ w[i - 2].rotate_right(19) ^ (w[i - 2] >> 10);
-            w[i] = w[i - 16].wrapping_add(s0).wrapping_add(w[i - 7]).wrapping_add(s1);
-        }
-
-        // Initialize working variables
-        let (mut a, mut b, mut c, mut d, mut e, mut f, mut g, mut hh) =
-            (h[0], h[1], h[2], h[3], h[4], h[5], h[6], h[7]);
-
-        // Compression function main loop
-        for i in 0..64 {
-            let s1 = e.rotate_right(6) ^ e.rotate_right(11) ^ e.rotate_right(25);
-            let ch = (e & f) ^ ((!e) & g);
-            let temp1 = hh.wrapping_add(s1).wrapping_add(ch).wrapping_add(K[i]).wrapping_add(w[i]);
-            let s0 = a.rotate_right(2) ^ a.rotate_right(13) ^ a.rotate_right(22);
-            let maj = (a & b) ^ (a & c) ^ (b & c);
-            let temp2 = s0.wrapping_add(maj);
-
-            hh = g;
-            g = f;
-            f = e;
-            e = d.wrapping_add(temp1);
-            d = c;
-            c = b;
-            b = a;
-            a = temp1.wrapping_add(temp2);
-        }
-
-        // Add compressed chunk to current hash value
-        h[0] = h[0].wrapping_add(a);
-        h[1] = h[1].wrapping_add(b);
-        h[2] = h[2].wrapping_add(c);
-        h[3] = h[3].wrapping_add(d);
-        h[4] = h[4].wrapping_add(e);
-        h[5] = h[5].wrapping_add(f);
-        h[6] = h[6].wrapping_add(g);
-        h[7] = h[7].wrapping_add(hh);
-    }
-
-    // Produce final hash value (big-endian)
-    let mut result = [0u8; 32];
-    for (i, &word) in h.iter().enumerate() {
-        result[i * 4..(i + 1) * 4].copy_from_slice(&word.to_be_bytes());
-    }
-    result
+/// HMAC-SHA256 using the hmac crate (already in build-dependencies)
+fn hmac_sha256(key: &[u8], data: &[u8]) -> [u8; 32] {
+    use hmac::{Hmac, Mac};
+    type HmacSha256 = Hmac<sha2::Sha256>;
+    let mut mac = HmacSha256::new_from_slice(key).expect("HMAC can take key of any size");
+    mac.update(data);
+    mac.finalize().into_bytes().into()
 }
 
 /// Base opcode definitions (canonical values)
@@ -841,16 +777,10 @@ fn generate_opcode_table(seed: &[u8; 32]) -> OpcodeTable {
     // We keep HALT and HALT_ERR fixed for simplicity in error handling
     let mut available: Vec<u8> = (0x00..0xFE).collect();
 
-    // Fisher-Yates shuffle using HMAC-derived randomness
-    let mut rng_state = shuffle_key;
+    // Fisher-Yates shuffle using BuildRng (was: 253 HMAC calls, now: fast PRNG)
+    let mut rng = BuildRng::new(&shuffle_key);
     for i in (1..available.len()).rev() {
-        // Get next random index
-        let rand_bytes = hmac_sha256(&rng_state, &(i as u32).to_le_bytes());
-        rng_state = rand_bytes;
-        let j = (u64::from_le_bytes([
-            rand_bytes[0], rand_bytes[1], rand_bytes[2], rand_bytes[3],
-            rand_bytes[4], rand_bytes[5], rand_bytes[6], rand_bytes[7],
-        ]) as usize) % (i + 1);
+        let j = (rng.next_u64() as usize) % (i + 1);
         available.swap(i, j);
     }
 
@@ -915,7 +845,7 @@ struct OpcodeTable {
 }
 
 /// Write opcode table to generated file
-fn write_opcode_table(f: &mut File, table: &OpcodeTable) {
+fn write_opcode_table(f: &mut BufWriter<File>, table: &OpcodeTable) {
     writeln!(f, "/// Opcode encoding table (base -> shuffled)").unwrap();
     writeln!(f, "/// Used by vm-macro at compile time").unwrap();
     write!(f, "pub const OPCODE_ENCODE: [u8; 256] = [").unwrap();
@@ -991,38 +921,6 @@ fn write_opcode_table(f: &mut File, table: &OpcodeTable) {
     writeln!(f).unwrap();
 }
 
-/// HMAC-SHA256 for production key derivation
-fn hmac_sha256(key: &[u8], data: &[u8]) -> [u8; 32] {
-    const BLOCK_SIZE: usize = 64;
-
-    // Prepare key
-    let mut k = [0u8; BLOCK_SIZE];
-    if key.len() > BLOCK_SIZE {
-        let hashed = sha256(key);
-        k[..32].copy_from_slice(&hashed);
-    } else {
-        k[..key.len()].copy_from_slice(key);
-    }
-
-    // Inner and outer pads
-    let mut ipad = [0x36u8; BLOCK_SIZE];
-    let mut opad = [0x5cu8; BLOCK_SIZE];
-    for i in 0..BLOCK_SIZE {
-        ipad[i] ^= k[i];
-        opad[i] ^= k[i];
-    }
-
-    // Inner hash: H(ipad || data)
-    let mut inner_data = ipad.to_vec();
-    inner_data.extend_from_slice(data);
-    let inner_hash = sha256(&inner_data);
-
-    // Outer hash: H(opad || inner_hash)
-    let mut outer_data = opad.to_vec();
-    outer_data.extend_from_slice(&inner_hash);
-    sha256(&outer_data)
-}
-
 // ============================================================================
 // MAGIC BYTES - Randomized bytecode header magic
 // ============================================================================
@@ -1033,7 +931,7 @@ fn generate_magic_bytes(seed: &[u8; 32]) -> [u8; 4] {
     [hash[0], hash[1], hash[2], hash[3]]
 }
 
-fn write_magic_bytes(f: &mut File, magic: &[u8; 4]) {
+fn write_magic_bytes(f: &mut BufWriter<File>, magic: &[u8; 4]) {
     writeln!(f, "/// Randomized MAGIC bytes for bytecode header").unwrap();
     writeln!(f, "pub const MAGIC: [u8; 4] = [0x{:02x}, 0x{:02x}, 0x{:02x}, 0x{:02x}];",
              magic[0], magic[1], magic[2], magic[3]).unwrap();
@@ -1084,7 +982,7 @@ fn generate_native_ids(seed: &[u8; 32]) -> NativeIdMap {
     }
 }
 
-fn write_native_ids(f: &mut File, ids: &NativeIdMap) {
+fn write_native_ids(f: &mut BufWriter<File>, ids: &NativeIdMap) {
     writeln!(f, "/// Shuffled native function IDs").unwrap();
     writeln!(f, "pub mod native_ids {{").unwrap();
     writeln!(f, "    pub const CHECK_ROOT: u8 = {};", ids.check_root).unwrap();
@@ -1131,7 +1029,7 @@ fn generate_register_map(seed: &[u8; 32]) -> RegisterMap {
     RegisterMap { map, reverse }
 }
 
-fn write_register_map(f: &mut File, reg_map: &RegisterMap) {
+fn write_register_map(f: &mut BufWriter<File>, reg_map: &RegisterMap) {
     writeln!(f, "/// Shuffled register mapping (logical -> physical)").unwrap();
     write!(f, "pub const REGISTER_MAP: [u8; 8] = [").unwrap();
     for (i, &val) in reg_map.map.iter().enumerate() {
@@ -1196,7 +1094,7 @@ fn generate_fnv_constants(seed: &[u8; 32]) -> FnvConstants {
     }
 }
 
-fn write_fnv_constants(f: &mut File, fnv: &FnvConstants) {
+fn write_fnv_constants(f: &mut BufWriter<File>, fnv: &FnvConstants) {
     writeln!(f, "/// Randomized FNV-1a hash constants").unwrap();
     writeln!(f, "pub const FNV_BASIS_64: u64 = 0x{:016x};", fnv.basis_64).unwrap();
     writeln!(f, "pub const FNV_PRIME_64: u64 = 0x{:016x};", fnv.prime_64).unwrap();
@@ -1215,7 +1113,7 @@ fn generate_xor_key(seed: &[u8; 32]) -> u8 {
     if hash[0] == 0 { hash[1] | 1 } else { hash[0] }
 }
 
-fn write_xor_key(f: &mut File, key: u8) {
+fn write_xor_key(f: &mut BufWriter<File>, key: u8) {
     writeln!(f, "/// Randomized XOR key for string obfuscation").unwrap();
     writeln!(f, "pub const XOR_KEY: u8 = 0x{:02x};", key).unwrap();
     writeln!(f).unwrap();
@@ -1251,7 +1149,7 @@ fn generate_flag_bits(seed: &[u8; 32]) -> FlagBits {
     }
 }
 
-fn write_flag_bits(f: &mut File, flags: &FlagBits) {
+fn write_flag_bits(f: &mut BufWriter<File>, flags: &FlagBits) {
     writeln!(f, "/// Shuffled flag bit positions").unwrap();
     writeln!(f, "pub mod flags {{").unwrap();
     writeln!(f, "    pub const ZERO: u8 = 0b{:08b};", flags.zero).unwrap();
@@ -1269,7 +1167,7 @@ fn write_flag_bits(f: &mut File, flags: &FlagBits) {
 /// Generate mutated arithmetic handlers
 /// Each build gets different implementations of the same operations
 fn generate_mutated_handlers(seed: &[u8; 32], path: &Path) {
-    let mut f = File::create(path).expect("Could not create mutated_handlers.rs");
+    let mut f = BufWriter::new(File::create(path).expect("Could not create mutated_handlers.rs"));
 
     // Derive mutation selection key
     let mutation_key = hmac_sha256(seed, b"handler-mutation-v1");
@@ -1340,32 +1238,20 @@ fn next_rand(state: &mut [u8; 32]) -> u64 {
 /// Generate random junk constants
 fn generate_junk_constants(key: &[u8; 32]) -> [u64; 8] {
     let hash = hmac_sha256(key, b"junk-constants");
+    let h2 = hmac_sha256(key, b"junk-constants-2"); // compute once, was 4x redundant
     [
         u64::from_le_bytes(hash[0..8].try_into().unwrap()),
         u64::from_le_bytes(hash[8..16].try_into().unwrap()),
         u64::from_le_bytes(hash[16..24].try_into().unwrap()),
         u64::from_le_bytes(hash[24..32].try_into().unwrap()),
-        // Generate more from another round
-        {
-            let h2 = hmac_sha256(key, b"junk-constants-2");
-            u64::from_le_bytes(h2[0..8].try_into().unwrap())
-        },
-        {
-            let h2 = hmac_sha256(key, b"junk-constants-2");
-            u64::from_le_bytes(h2[8..16].try_into().unwrap())
-        },
-        {
-            let h2 = hmac_sha256(key, b"junk-constants-2");
-            u64::from_le_bytes(h2[16..24].try_into().unwrap())
-        },
-        {
-            let h2 = hmac_sha256(key, b"junk-constants-2");
-            u64::from_le_bytes(h2[24..32].try_into().unwrap())
-        },
+        u64::from_le_bytes(h2[0..8].try_into().unwrap()),
+        u64::from_le_bytes(h2[8..16].try_into().unwrap()),
+        u64::from_le_bytes(h2[16..24].try_into().unwrap()),
+        u64::from_le_bytes(h2[24..32].try_into().unwrap()),
     ]
 }
 
-fn write_junk_constants(f: &mut File, consts: &[u64; 8]) {
+fn write_junk_constants(f: &mut BufWriter<File>, consts: &[u64; 8]) {
     writeln!(f, "// Junk constants for dead code insertion").unwrap();
     writeln!(f, "#[allow(dead_code)]").unwrap();
     writeln!(f, "const JUNK: [u64; 8] = [").unwrap();
@@ -1391,7 +1277,7 @@ fn generate_junk_line(rng: &mut [u8; 32], var_idx: usize) -> String {
 }
 
 /// Insert junk code before/after main logic
-fn insert_junk(f: &mut File, rng: &mut [u8; 32], count: usize, start_idx: usize) {
+fn insert_junk(f: &mut BufWriter<File>, rng: &mut [u8; 32], count: usize, start_idx: usize) {
     for i in 0..count {
         writeln!(f, "{}", generate_junk_line(rng, start_idx + i)).unwrap();
     }
@@ -1401,7 +1287,7 @@ fn insert_junk(f: &mut File, rng: &mut [u8; 32], count: usize, start_idx: usize)
 // Individual Handler Generators
 // ============================================================================
 
-fn generate_add_handler(f: &mut File, variant: u64, rng: &mut [u8; 32]) {
+fn generate_add_handler(f: &mut BufWriter<File>, variant: u64, rng: &mut [u8; 32]) {
     writeln!(f, "/// ADD: Pop 2, push sum (Variant {})", variant).unwrap();
     writeln!(f, "#[inline(always)]").unwrap();
     writeln!(f, "pub fn mutated_add(state: &mut VmState) -> VmResult<()> {{").unwrap();
@@ -1445,7 +1331,7 @@ fn generate_add_handler(f: &mut File, variant: u64, rng: &mut [u8; 32]) {
     writeln!(f).unwrap();
 }
 
-fn generate_sub_handler(f: &mut File, variant: u64, rng: &mut [u8; 32]) {
+fn generate_sub_handler(f: &mut BufWriter<File>, variant: u64, rng: &mut [u8; 32]) {
     writeln!(f, "/// SUB: Pop 2, push difference (Variant {})", variant).unwrap();
     writeln!(f, "#[inline(always)]").unwrap();
     writeln!(f, "pub fn mutated_sub(state: &mut VmState) -> VmResult<()> {{").unwrap();
@@ -1486,7 +1372,7 @@ fn generate_sub_handler(f: &mut File, variant: u64, rng: &mut [u8; 32]) {
     writeln!(f).unwrap();
 }
 
-fn generate_mul_handler(f: &mut File, variant: u64, rng: &mut [u8; 32]) {
+fn generate_mul_handler(f: &mut BufWriter<File>, variant: u64, rng: &mut [u8; 32]) {
     writeln!(f, "/// MUL: Pop 2, push product (Variant {})", variant).unwrap();
     writeln!(f, "#[inline(always)]").unwrap();
     writeln!(f, "pub fn mutated_mul(state: &mut VmState) -> VmResult<()> {{").unwrap();
@@ -1521,7 +1407,7 @@ fn generate_mul_handler(f: &mut File, variant: u64, rng: &mut [u8; 32]) {
     writeln!(f).unwrap();
 }
 
-fn generate_xor_handler(f: &mut File, variant: u64, rng: &mut [u8; 32]) {
+fn generate_xor_handler(f: &mut BufWriter<File>, variant: u64, rng: &mut [u8; 32]) {
     writeln!(f, "/// XOR: Pop 2, push XOR (Variant {})", variant).unwrap();
     writeln!(f, "#[inline(always)]").unwrap();
     writeln!(f, "pub fn mutated_xor(state: &mut VmState) -> VmResult<()> {{").unwrap();
@@ -1566,7 +1452,7 @@ fn generate_xor_handler(f: &mut File, variant: u64, rng: &mut [u8; 32]) {
     writeln!(f).unwrap();
 }
 
-fn generate_and_handler(f: &mut File, variant: u64, rng: &mut [u8; 32]) {
+fn generate_and_handler(f: &mut BufWriter<File>, variant: u64, rng: &mut [u8; 32]) {
     writeln!(f, "/// AND: Pop 2, push AND (Variant {})", variant).unwrap();
     writeln!(f, "#[inline(always)]").unwrap();
     writeln!(f, "pub fn mutated_and(state: &mut VmState) -> VmResult<()> {{").unwrap();
@@ -1602,7 +1488,7 @@ fn generate_and_handler(f: &mut File, variant: u64, rng: &mut [u8; 32]) {
     writeln!(f).unwrap();
 }
 
-fn generate_or_handler(f: &mut File, variant: u64, rng: &mut [u8; 32]) {
+fn generate_or_handler(f: &mut BufWriter<File>, variant: u64, rng: &mut [u8; 32]) {
     writeln!(f, "/// OR: Pop 2, push OR (Variant {})", variant).unwrap();
     writeln!(f, "#[inline(always)]").unwrap();
     writeln!(f, "pub fn mutated_or(state: &mut VmState) -> VmResult<()> {{").unwrap();
@@ -1638,7 +1524,7 @@ fn generate_or_handler(f: &mut File, variant: u64, rng: &mut [u8; 32]) {
     writeln!(f).unwrap();
 }
 
-fn generate_not_handler(f: &mut File, variant: u64, rng: &mut [u8; 32]) {
+fn generate_not_handler(f: &mut BufWriter<File>, variant: u64, rng: &mut [u8; 32]) {
     writeln!(f, "/// NOT: Pop 1, push NOT (Variant {})", variant).unwrap();
     writeln!(f, "#[inline(always)]").unwrap();
     writeln!(f, "pub fn mutated_not(state: &mut VmState) -> VmResult<()> {{").unwrap();
@@ -1680,7 +1566,7 @@ fn generate_not_handler(f: &mut File, variant: u64, rng: &mut [u8; 32]) {
     writeln!(f).unwrap();
 }
 
-fn generate_inc_handler(f: &mut File, variant: u64, rng: &mut [u8; 32]) {
+fn generate_inc_handler(f: &mut BufWriter<File>, variant: u64, rng: &mut [u8; 32]) {
     writeln!(f, "/// INC: Increment top of stack (Variant {})", variant).unwrap();
     writeln!(f, "#[inline(always)]").unwrap();
     writeln!(f, "pub fn mutated_inc(state: &mut VmState) -> VmResult<()> {{").unwrap();
@@ -1713,7 +1599,7 @@ fn generate_inc_handler(f: &mut File, variant: u64, rng: &mut [u8; 32]) {
     writeln!(f).unwrap();
 }
 
-fn generate_dec_handler(f: &mut File, variant: u64, rng: &mut [u8; 32]) {
+fn generate_dec_handler(f: &mut BufWriter<File>, variant: u64, rng: &mut [u8; 32]) {
     writeln!(f, "/// DEC: Decrement top of stack (Variant {})", variant).unwrap();
     writeln!(f, "#[inline(always)]").unwrap();
     writeln!(f, "pub fn mutated_dec(state: &mut VmState) -> VmResult<()> {{").unwrap();
@@ -2124,7 +2010,7 @@ fn generate_mixing_bijections(rng: &mut BuildRng) -> [MixingBijection32; 9] {
 
 /// Generate whitebox tables embedded with entropy pool protection
 /// The AES key is ONLY used during build - it never exists at runtime!
-fn generate_whitebox_config(f: &mut File, build_seed: &[u8; 32]) {
+fn generate_whitebox_config(f: &mut BufWriter<File>, build_seed: &[u8; 32]) {
     // Derive WBC key and table seed
     let wbc_key_full = hmac_sha256(build_seed, b"whitebox-aes-key-v1");
     let table_seed = hmac_sha256(build_seed, b"whitebox-table-seed-v1");
@@ -2142,10 +2028,14 @@ fn generate_whitebox_config(f: &mut File, build_seed: &[u8; 32]) {
     let mut entropy_pool = vec![0u8; POOL_SIZE];
     let pool_seed = hmac_sha256(build_seed, b"wbc-shared-pool-v2");
     let mut rng_state = pool_seed;
-    for (i, byte) in entropy_pool.iter_mut().enumerate() {
-        let mac = hmac_sha256(&rng_state, &(i as u32).to_le_bytes());
-        *byte = mac[0];
-        if i % 64 == 0 { rng_state = mac; }
+    // Use all 32 bytes from each HMAC (was: only mac[0], 65536 calls -> now ~2048 calls)
+    let mut pos = 0usize;
+    while pos < POOL_SIZE {
+        let mac = hmac_sha256(&rng_state, &(pos as u32).to_le_bytes());
+        let copy_len = (POOL_SIZE - pos).min(32);
+        entropy_pool[pos..pos + copy_len].copy_from_slice(&mac[..copy_len]);
+        pos += 32;
+        if pos % 2048 == 0 { rng_state = mac; }
     }
 
     // Generate per-table parameters and deltas
@@ -2174,7 +2064,7 @@ fn generate_whitebox_config(f: &mut File, build_seed: &[u8; 32]) {
 
     // Helper function to generate and write delta array for a table
     fn write_table_deltas(
-        f: &mut File,
+        f: &mut BufWriter<File>,
         name: &str,
         table_data: &[u8],
         entropy_pool: &[u8],

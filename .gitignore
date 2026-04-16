@@ -10,3 +10,6 @@ build_history.txt
 /.cargo
 # macOS
 .DS_Store
+/_bmad
+/docs
+/_bmad-output
