@@ -11,7 +11,6 @@
 //! - **60+ Opcodes**: Complete instruction set for complex logic
 //! - **Anti-Analysis**: Opaque predicates, timing checks, integrity verification
 //! - **Cross-Platform**: Works on iOS and Android
-//! - **OLLVM Compatible**: Uses fastrand instead of rand crate
 //!
 //! ## Example
 //!

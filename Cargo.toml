@@ -10,7 +10,6 @@ categories = ["cryptography", "development-tools"]
 readme = "README.md"
 
 [dependencies]
-fastrand = "2.4"
 aes-gcm = { version = "0.10.3", default-features = false, features = [
     "aes",
     "alloc",
